@@ -14,6 +14,7 @@ __pycache__/
 # Artefatos / backups que não pertencem ao versionamento
 trab-alvaro.zip
 *.zip
+.n8n-backup/
 
 # Sistema operacional / editores
 .DS_Store

@@ -2,17 +2,6 @@
   "name": "Orcamento Farmaceutico Hibrido",
   "nodes": [
     {
-      "parameters": {},
-      "id": "0383136e-a8ef-418c-b130-6e405b514ed2",
-      "name": "Trigger Manual",
-      "type": "n8n-nodes-base.manualTrigger",
-      "typeVersion": 1,
-      "position": [
-        -1424,
-        432
-      ]
-    },
-    {
       "parameters": {
         "method": "POST",
         "url": "http://172.17.0.1:1234/v1/embeddings",
@@ -47,7 +36,7 @@
     },
     {
       "parameters": {
-        "jsCode": "\nconst embeddingResponse = $input.first().json;\nconst email = $('Email de Teste1').first().json.email;\nconst embedding = embeddingResponse.data[0].embedding;\nconst vectorStr = '[' + embedding.join(',') + ']';\n\n// Monta query semantica\nconst semanticQuery = \"SELECT chunk_id, content, metadata, 1 - (embedding <=> '\" + vectorStr + \"'::vector) AS score FROM documents ORDER BY embedding <=> '\" + vectorStr + \"'::vector LIMIT 20\";\n\n// Extrai termos para busca lexical\nconst stopwords = new Set([\n  'para', 'com', 'por', 'que', 'uma', 'uns', 'das', 'dos', 'nos', 'nas',\n  'seu', 'sua', 'orcamento', 'gostaria', 'receber', 'enviem', 'envie',\n  'quero', 'favor', 'att', 'ola', 'seguintes', 'produto', 'produtos',\n  'solicitacao', 'abaixo', 'segue', 'bom', 'dia', 'tarde', 'noite'\n]);\nconst codes = email.match(/\\b\\d{6,7}\\b/g) || [];\nconst words = (email.match(/\\b[A-Za-z\\u00C0-\\u00FF0-9]{4,}\\b/g) || [])\n  .filter(w => !stopwords.has(w.toLowerCase()))\n  .slice(0, 20);\n\nconst conditions = [];\ncodes.forEach(c => conditions.push(\"metadata->>'codigo_sap' = '\" + c + \"'\"));\nwords.forEach(w => conditions.push(\"content ILIKE '%\" + w + \"%'\"));\nconst whereClause = conditions.length > 0 ? conditions.join(' OR ') : '1=0';\nconst lexicalQuery = \"SELECT chunk_id, content, metadata, 1.0 AS score FROM documents WHERE \" + whereClause + \" LIMIT 20\";\n\nreturn [{ json: { email, semanticQuery, lexicalQuery } }];\n"
+        "jsCode": "\nconst embeddingResponse = $input.first().json;\nconst email = $('Entrada do Formulario').first().json.email;\nconst embedding = embeddingResponse.data[0].embedding;\nconst vectorStr = '[' + embedding.join(',') + ']';\n\n// Monta query semantica\nconst semanticQuery = \"SELECT chunk_id, content, metadata, 1 - (embedding <=> '\" + vectorStr + \"'::vector) AS score FROM documents ORDER BY embedding <=> '\" + vectorStr + \"'::vector LIMIT 20\";\n\n// Extrai termos para busca lexical\nconst stopwords = new Set([\n  'para', 'com', 'por', 'que', 'uma', 'uns', 'das', 'dos', 'nos', 'nas',\n  'seu', 'sua', 'orcamento', 'gostaria', 'receber', 'enviem', 'envie',\n  'quero', 'favor', 'att', 'ola', 'seguintes', 'produto', 'produtos',\n  'solicitacao', 'abaixo', 'segue', 'bom', 'dia', 'tarde', 'noite'\n]);\nconst codes = email.match(/\\b\\d{6,7}\\b/g) || [];\nconst words = (email.match(/\\b[A-Za-z\\u00C0-\\u00FF0-9]{4,}\\b/g) || [])\n  .filter(w => !stopwords.has(w.toLowerCase()))\n  .slice(0, 20);\n\nconst conditions = [];\ncodes.forEach(c => conditions.push(\"metadata->>'codigo_sap' = '\" + c + \"'\"));\nwords.forEach(w => conditions.push(\"content ILIKE '%\" + w + \"%'\"));\nconst whereClause = conditions.length > 0 ? conditions.join(' OR ') : '1=0';\nconst lexicalQuery = \"SELECT chunk_id, content, metadata, 1.0 AS score FROM documents WHERE \" + whereClause + \" LIMIT 20\";\n\nreturn [{ json: { email, semanticQuery, lexicalQuery } }];\n"
       },
       "id": "93846a95-8efe-4892-94c2-a179ea9f2599",
       "name": "Preparar Buscas",
@@ -143,7 +132,7 @@
     },
     {
       "parameters": {
-        "jsCode": "\nconst email = $('Email de Teste1').first().json.email;\nconst semanticResults = $input.first().json.semanticResults || [];\nconst lexicalResults = $input.first().json.lexicalResults || [];\n\nconst K = 60; // constante padrao do RRF\nconst scores = {};\nconst docs = {};\n\n// Score semantico\nsemanticResults.forEach((doc, idx) => {\n  const id = doc.chunk_id;\n  if (!scores[id]) scores[id] = 0;\n  scores[id] += 1 / (K + idx + 1);\n  docs[id] = doc;\n});\n\n// Score lexical\nlexicalResults.forEach((doc, idx) => {\n  const id = doc.chunk_id;\n  if (!scores[id]) scores[id] = 0;\n  scores[id] += 1 / (K + idx + 1);\n  if (!docs[id]) docs[id] = doc;\n});\n\n// Ordena por RRF score e pega top 10\nconst topDocs = Object.entries(scores)\n  .sort((a, b) => b[1] - a[1])\n  .slice(0, 10)\n  .map(([id, score]) => ({ ...docs[id], rrf_score: score.toFixed(4) }));\n\nconst catalogText = topDocs.map(doc => {\n  const m = doc.metadata;\n  return 'Produto: ' + m.apresentacao +\n    '\\nCodigo SAP: ' + m.codigo_sap +\n    '\\nRRF Score: ' + doc.rrf_score +\n    '\\nPrecos PF  - ICMS12: R$' + m.icms_12_pf + ' | ICMS17: R$' + m.icms_17_pf + ' | ICMS18: R$' + m.icms_18_pf + ' | ICMS20: R$' + m.icms_20_pf +\n    '\\nPrecos PMC - ICMS12: R$' + m.icms_12_pmc + ' | ICMS17: R$' + m.icms_17_pmc + ' | ICMS18: R$' + m.icms_18_pmc + ' | ICMS20: R$' + m.icms_20_pmc +\n    '\\nDescricao: ' + doc.content;\n}).join('\\n\\n---\\n\\n');\n\nconst formatoJSON = '{\"itens\":[{\"produto\":\"\",\"codigo\":\"\",\"quantidade\":0,\"preco_unitario\":0.0,\"preco_total\":0.0}],\"cliente\":{\"tipo\":\"\",\"uf\":\"\"},\"total\":0.0}';\n\nconst systemMessage = 'Voce e um sistema de cotacao de medicamentos farmaceuticos. '\n  + 'Receberá uma mensagem de solicitacao de orcamento e produtos encontrados no catalogo ordenados por relevancia (RRF Score). '\n  + 'Sua tarefa: '\n  + '1) Identificar quais produtos correspondem ao solicitado. '\n  + '2) Extrair quantidades (padrao 1 se nao informado). '\n  + '3) Identificar tipo de cliente: PF, PJ ou Revenda. '\n  + '4) Identificar UF se mencionada. '\n  + '5) Calcular precos: PF e PJ usam icms_17_pf, Revenda usa icms_17_pmc, sem UF usa icms_17_pf. '\n  + '6) preco_total = quantidade x preco_unitario. '\n  + '7) Somar total geral. '\n  + 'Responda APENAS com JSON valido, sem markdown, sem texto adicional: '\n  + formatoJSON;\n\nconst userMessage = 'Mensagem do cliente:\\n' + email\n  + '\\n\\nProdutos mais relevantes (ordenados por RRF Score):\\n\\n' + catalogText;\n\nconst body = {\n  model: 'gemma-3n-e4b-it-text',\n  messages: [\n    { role: 'system', content: systemMessage },\n    { role: 'user', content: userMessage }\n  ],\n  temperature: 0.1,\n  max_tokens: 1024,\n  stream: false\n};\n\nreturn [{ json: { body } }];\n"
+        "jsCode": "\nconst email = $('Entrada do Formulario').first().json.email;\nconst semanticResults = $input.first().json.semanticResults || [];\nconst lexicalResults = $input.first().json.lexicalResults || [];\n\nconst K = 60; // constante padrao do RRF\nconst scores = {};\nconst docs = {};\n\n// Score semantico\nsemanticResults.forEach((doc, idx) => {\n  const id = doc.chunk_id;\n  if (!scores[id]) scores[id] = 0;\n  scores[id] += 1 / (K + idx + 1);\n  docs[id] = doc;\n});\n\n// Score lexical\nlexicalResults.forEach((doc, idx) => {\n  const id = doc.chunk_id;\n  if (!scores[id]) scores[id] = 0;\n  scores[id] += 1 / (K + idx + 1);\n  if (!docs[id]) docs[id] = doc;\n});\n\n// Ordena por RRF score e pega top 10\nconst topDocs = Object.entries(scores)\n  .sort((a, b) => b[1] - a[1])\n  .slice(0, 10)\n  .map(([id, score]) => ({ ...docs[id], rrf_score: score.toFixed(4) }));\n\nconst catalogText = topDocs.map(doc => {\n  const m = doc.metadata;\n  return 'Produto: ' + m.apresentacao +\n    '\\nCodigo SAP: ' + m.codigo_sap +\n    '\\nRRF Score: ' + doc.rrf_score +\n    '\\nPrecos PF  - ICMS12: R$' + m.icms_12_pf + ' | ICMS17: R$' + m.icms_17_pf + ' | ICMS18: R$' + m.icms_18_pf + ' | ICMS20: R$' + m.icms_20_pf +\n    '\\nPrecos PMC - ICMS12: R$' + m.icms_12_pmc + ' | ICMS17: R$' + m.icms_17_pmc + ' | ICMS18: R$' + m.icms_18_pmc + ' | ICMS20: R$' + m.icms_20_pmc +\n    '\\nDescricao: ' + doc.content;\n}).join('\\n\\n---\\n\\n');\n\nconst formatoJSON = '{\"itens\":[{\"produto\":\"\",\"codigo\":\"\",\"quantidade\":0,\"preco_unitario\":0.0,\"preco_total\":0.0}],\"cliente\":{\"tipo\":\"\",\"uf\":\"\"},\"total\":0.0}';\n\nconst systemMessage = 'Voce e um sistema de cotacao de medicamentos farmaceuticos. '\n  + 'Receberá uma mensagem de solicitacao de orcamento e produtos encontrados no catalogo ordenados por relevancia (RRF Score). '\n  + 'Sua tarefa: '\n  + '1) Identificar quais produtos correspondem ao solicitado. '\n  + '2) Extrair quantidades (padrao 1 se nao informado). '\n  + '3) Identificar tipo de cliente: PF, PJ ou Revenda. '\n  + '4) Identificar UF se mencionada. '\n  + '5) Calcular precos: PF e PJ usam icms_17_pf, Revenda usa icms_17_pmc, sem UF usa icms_17_pf. '\n  + '6) preco_total = quantidade x preco_unitario. '\n  + '7) Somar total geral. '\n  + 'Responda APENAS com JSON valido, sem markdown, sem texto adicional: '\n  + formatoJSON;\n\nconst userMessage = 'Mensagem do cliente:\\n' + email\n  + '\\n\\nProdutos mais relevantes (ordenados por RRF Score):\\n\\n' + catalogText;\n\nconst body = {\n  model: 'gemma-3n-e4b-it-text',\n  messages: [\n    { role: 'system', content: systemMessage },\n    { role: 'user', content: userMessage }\n  ],\n  temperature: 0.1,\n  max_tokens: 1024,\n  stream: false\n};\n\nreturn [{ json: { body } }];\n"
       },
       "id": "40974cd3-3265-4f22-8f0a-5ce28f078945",
       "name": "Aplicar RRF e Montar Prompt",
@@ -161,7 +150,7 @@
             {
               "id": "email-field",
               "name": "email",
-              "value": "Ola, gostaria de receber um orcamento:\n10x ACICLOVIR 200MG COM BLX25\n10x BIOMAG 15MG CAP BLX30\n\nJose Farmacia - Rio de Janeiro - RJ",
+              "value": "={{ $json[\"Itens e dados do cliente\"] }}",
               "type": "string"
             }
           ]
@@ -169,7 +158,7 @@
         "options": {}
       },
       "id": "473213ff-2d8c-454d-ab48-ae94c4e75b69",
-      "name": "Email de Teste1",
+      "name": "Entrada do Formulario",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
       "position": [
@@ -192,7 +181,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={\"model\":\"local-model\",\"messages\":[{\"role\":\"system\",\"content\":\"Voce e um sistema de cotacao de medicamentos farmaceuticos. Receberá uma mensagem de solicitacao de orcamento e produtos encontrados no catalogo ordenados por relevancia (RRF Score). Sua tarefa: 1) Identificar quais produtos correspondem ao solicitado. 2) Extrair quantidades (padrao 1 se nao informado). 3) Identificar tipo de cliente: PF, PJ ou Revenda. 4) Identificar UF se mencionada. 5) Calcular precos: PF e PJ usam icms_17_pf, Revenda usa icms_17_pmc, sem UF usa icms_17_pf. 6) preco_total = quantidade x preco_unitario. 7) Somar total geral. Responda APENAS com JSON valido, sem markdown, sem texto adicional: {\\\"itens\\\":[{\\\"produto\\\":\\\"\\\",\\\"codigo\\\":\\\"\\\",\\\"quantidade\\\":0,\\\"preco_unitario\\\":0.0,\\\"preco_total\\\":0.0}],\\\"cliente\\\":{\\\"tipo\\\":\\\"\\\",\\\"uf\\\":\\\"\\\"},\\\"total\\\":0.0}\"},{\"role\":\"user\",\"content\":\"Mensagem do cliente:\\nOla, gostaria de receber um orcamento:\\n10x ACICLOVIR 200MG COM BLX25\\n10x BIOMAG 15MG CAP BLX30\\n\\nJose Farmacia - Rio de Janeiro - RJ\\n\\nProdutos mais relevantes (ordenados por RRF Score):\\n\\nProduto: ACICLOVIR 200MG COM BLX25\\nCodigo SAP: 1006459\\nRRF Score: 0.0325\\nPrecos PF  - ICMS12: R$88.35 | ICMS17: R$93.67 | ICMS18: R$94.82 | ICMS20: R$97.19\\nPrecos PMC - ICMS12: R$122.14 | ICMS17: R$129.49 | ICMS18: R$131.08 | ICMS20: R$134.36\\nDescricao: Apresentação: ACICLOVIR 200MG COM BLX25. Princípio Ativo: ACICLOVIR. Código SAP: 1006459. Código EAN: 7,89618E+12. Família: ACICLOVIR. Tipo: GENÉRICO.\\n\\n---\\n\\nProduto: ACICLOVIR 200MG COM BLX25\\nCodigo SAP: 1005119\\nRRF Score: 0.0325\\nPrecos PF  - ICMS12: R$88.35 | ICMS17: R$93.67 | ICMS18: R$94.82 | ICMS20: R$97.19\\nPrecos PMC - ICMS12: R$122.14 | ICMS17: R$129.49 | ICMS18: R$131.08 | ICMS20: R$134.36\\nDescricao: Apresentação: ACICLOVIR 200MG COM BLX25. Princípio Ativo: ACICLOVIR. Código SAP: 1005119. Código EAN: 7,89618E+12. Família: ACICLOVIR. Tipo: GENÉRICO.\\n\\n---\\n\\nProduto: ACICLOVIR 50MG CREM BGX10G\\nCodigo SAP: 1001751\\nRRF Score: 0.0317\\nPrecos PF  - ICMS12: R$17.84 | ICMS17: R$19.08 | ICMS18: R$19.35 | ICMS20: R$19.91\\nPrecos PMC - ICMS12: R$23.83 | ICMS17: R$25.43 | ICMS18: R$25.78 | ICMS20: R$26.5\\nDescricao: Apresentação: ACICLOVIR 50MG CREM BGX10G. Princípio Ativo: ACICLOVIR. Código SAP: 1001751. Código EAN: 7,89618E+12. Família: ACICLOVIR. Tipo: GENÉRICO.\\n\\n---\\n\\nProduto: ACICLOVIR 50MG CREM BGX10G\\nCodigo SAP: 1006449\\nRRF Score: 0.0313\\nPrecos PF  - ICMS12: R$17.84 | ICMS17: R$19.08 | ICMS18: R$19.35 | ICMS20: R$19.91\\nPrecos PMC - ICMS12: R$23.83 | ICMS17: R$25.43 | ICMS18: R$25.78 | ICMS20: R$26.5\\nDescricao: Apresentação: ACICLOVIR 50MG CREM BGX10G. Princípio Ativo: ACICLOVIR. Código SAP: 1006449. Código EAN: 7,89618E+12. Família: ACICLOVIR. Tipo: GENÉRICO.\\n\\n---\\n\\nProduto: BIOMAG 10MG CAP BLX30 (B2)\\nCodigo SAP: 1002588\\nRRF Score: 0.0154\\nPrecos PF  - ICMS12: R$31.3 | ICMS17: R$33.48 | ICMS18: R$33.95 | ICMS20: R$34.93\\nPrecos PMC - ICMS12: R$41.81 | ICMS17: R$44.63 | ICMS18: R$45.23 | ICMS20: R$46.49\\nDescricao: Apresentação: BIOMAG 10MG CAP BLX30 (B2). Princípio Ativo: CLORIDRATO DE SIBUTRAMINA. Código SAP: 1002588. Código EAN: 7,89666E+12. Família: BIOMAG. Tipo: REFERÊNCIA.\\n\\n---\\n\\nProduto: ALPRAZOLAM 0,5MG COM BLX30 (B1)\\nCodigo SAP: 1005120\\nRRF Score: 0.0154\\nPrecos PF  - ICMS12: R$16.4 | ICMS17: R$17.39 | ICMS18: R$17.6 | ICMS20: R$18.04\\nPrecos PMC - ICMS12: R$22.67 | ICMS17: R$24.04 | ICMS18: R$24.33 | ICMS20: R$24.94\\nDescricao: Apresentação: ALPRAZOLAM 0,5MG COM BLX30 (B1). Princípio Ativo: ALPRAZOLAM. Código SAP: 1005120. Código EAN: 7,89618E+12. Família: ALPRAZOLAM. Tipo: GENÉRICO.\\n\\n---\\n\\nProduto: BIOMAG 10MG CAP BLX60 (B2)\\nCodigo SAP: 1005439\\nRRF Score: 0.0152\\nPrecos PF  - ICMS12: R$58.62 | ICMS17: R$62.69 | ICMS18: R$63.57 | ICMS20: R$65.41\\nPrecos PMC - ICMS12: R$78.3 | ICMS17: R$83.56 | ICMS18: R$84.69 | ICMS20: R$87.06\\nDescricao: Apresentação: BIOMAG 10MG CAP BLX60 (B2). Princípio Ativo: CLORIDRATO DE SIBUTRAMINA. Código SAP: 1005439. Código EAN: 7,89666E+12. Família: BIOMAG. Tipo: REFERÊNCIA.\\n\\n---\\n\\nProduto: ALPRAZOLAM 0,5MG COM BLX30 (B1)\\nCodigo SAP: 1006286\\nRRF Score: 0.0152\\nPrecos PF  - ICMS12: R$16.4 | ICMS17: R$17.39 | ICMS18: R$17.6 | ICMS20: R$18.04\\nPrecos PMC - ICMS12: R$22.67 | ICMS17: R$24.04 | ICMS18: R$24.33 | ICMS20: R$24.94\\nDescricao: Apresentação: ALPRAZOLAM 0,5MG COM BLX30 (B1). Princípio Ativo: ALPRAZOLAM. Código SAP: 1006286. Código EAN: 7,89618E+12. Família: ALPRAZOLAM. Tipo: GENÉRICO.\\n\\n---\\n\\nProduto: BIOMAG 15MG CAP BLX30 (B2)\\nCodigo SAP: 1002589\\nRRF Score: 0.0149\\nPrecos PF  - ICMS12: R$33.23 | ICMS17: R$35.54 | ICMS18: R$36.04 | ICMS20: R$37.08\\nPrecos PMC - ICMS12: R$44.39 | ICMS17: R$47.37 | ICMS18: R$48.02 | ICMS20: R$49.35\\nDescricao: Apresentação: BIOMAG 15MG CAP BLX30 (B2). Princípio Ativo: CLORIDRATO DE SIBUTRAMINA. Código SAP: 1002589. Código EAN: 7,89666E+12. Família: BIOMAG. Tipo: REFERÊNCIA.\\n\\n---\\n\\nProduto: ALPRAZOLAM 1MG COM BLX30 (B1)\\nCodigo SAP: 1006312\\nRRF Score: 0.0149\\nPrecos PF  - ICMS12: R$26.95 | ICMS17: R$28.58 | ICMS18: R$28.93 | ICMS20: R$29.65\\nPrecos PMC - ICMS12: R$37.26 | ICMS17: R$39.51 | ICMS18: R$39.99 | ICMS20: R$40.99\\nDescricao: Apresentação: ALPRAZOLAM 1MG COM BLX30 (B1). Princípio Ativo: ALPRAZOLAM. Código SAP: 1006312. Código EAN: 7,89618E+12. Família: ALPRAZOLAM. Tipo: GENÉRICO.\"}],\"temperature\":0.1,\"max_tokens\":1024,\"stream\":false}",
+        "jsonBody": "={{ JSON.stringify($json.body) }}",
         "options": {
           "timeout": 120000
         }
@@ -218,21 +207,67 @@
         576,
         432
       ]
+    },
+    {
+      "parameters": {
+        "formTitle": "Solicitação de Orçamento Farmacêutico",
+        "formDescription": "Cole o e-mail ou liste os itens do pedido. Inclua quantidades e, se possível, o tipo de cliente (PF, PJ ou Revenda) e a UF.",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Itens e dados do cliente",
+              "fieldType": "textarea",
+              "placeholder": "Ex.:\n10x ACICLOVIR 200MG COM BLX25\n10x BIOMAG 15MG CAP BLX30\n\nJose Farmacia - Rio de Janeiro - RJ",
+              "requiredField": true
+            }
+          ]
+        },
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "f0a11111-2222-4333-8444-555566667777",
+      "name": "Formulario de Orcamento",
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.2,
+      "position": [
+        -1424,
+        432
+      ],
+      "webhookId": "7e29c666-1218-4bf1-9866-735e28451c8b"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst orc = $input.first().json;\nconst esc = s => String(s == null ? '' : s)\n  .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');\nconst brl = v => 'R$ ' + Number(v || 0).toFixed(2).replace('.', ',')\n  .replace(/\\B(?=(\\d{3})+(?!\\d))/g, '.');\n\nlet body;\nif (orc && orc.erro) {\n  body = '<div class=\"erro\"><h2>Não foi possível gerar o orçamento</h2>'\n    + '<p>' + esc(orc.erro) + '</p><pre>' + esc(orc.raw || '') + '</pre></div>';\n} else {\n  const itens = (orc.itens || []);\n  const cli = orc.cliente || {};\n  const linhas = itens.map(it =>\n    '<tr><td>' + esc(it.produto) + '</td>'\n    + '<td class=\"c\">' + esc(it.codigo) + '</td>'\n    + '<td class=\"r\">' + esc(it.quantidade) + '</td>'\n    + '<td class=\"r\">' + brl(it.preco_unitario) + '</td>'\n    + '<td class=\"r\">' + brl(it.preco_total) + '</td></tr>'\n  ).join('');\n  const tipo = esc(cli.tipo || '—');\n  const uf = esc(cli.uf || '—');\n  body =\n    '<div class=\"meta\">'\n    + '<div><span class=\"lbl\">Tipo de cliente</span><span class=\"val\">' + tipo + '</span></div>'\n    + '<div><span class=\"lbl\">UF</span><span class=\"val\">' + uf + '</span></div>'\n    + '<div><span class=\"lbl\">Itens</span><span class=\"val\">' + itens.length + '</span></div>'\n    + '</div>'\n    + '<table><thead><tr><th>Produto</th><th>Código SAP</th>'\n    + '<th class=\"r\">Qtd.</th><th class=\"r\">Preço unit.</th><th class=\"r\">Subtotal</th>'\n    + '</tr></thead><tbody>' + linhas + '</tbody>'\n    + '<tfoot><tr><td colspan=\"4\" class=\"r\">Total</td>'\n    + '<td class=\"r total\">' + brl(orc.total) + '</td></tr></tfoot></table>';\n}\n\nconst html =\n'<!DOCTYPE html><html lang=\"pt-BR\"><head><meta charset=\"UTF-8\">'\n+ '<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">'\n+ '<title>Orçamento Farmacêutico</title><style>'\n+ ':root{--ac:#2f6df6;--ink:#1f2733;--mut:#67727f;--line:#e4e8ef;--bg:#f5f7fb}'\n+ '*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);'\n+ 'font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;line-height:1.5}'\n+ '.sheet{max-width:820px;margin:32px auto;background:#fff;border:1px solid var(--line);'\n+ 'border-radius:14px;overflow:hidden;box-shadow:0 6px 24px rgba(20,40,80,.06)}'\n+ '.hd{background:linear-gradient(135deg,#2f6df6,#5b8bff);color:#fff;padding:26px 30px}'\n+ '.hd h1{margin:0;font-size:22px;letter-spacing:-.3px}'\n+ '.hd p{margin:4px 0 0;opacity:.9;font-size:13.5px}'\n+ '.body{padding:24px 30px 30px}'\n+ '.meta{display:flex;gap:14px;flex-wrap:wrap;margin-bottom:18px}'\n+ '.meta>div{flex:1;min-width:120px;background:var(--bg);border:1px solid var(--line);'\n+ 'border-radius:10px;padding:10px 14px}'\n+ '.lbl{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--mut)}'\n+ '.val{display:block;font-size:17px;font-weight:600;margin-top:2px}'\n+ 'table{width:100%;border-collapse:collapse;font-size:14px}'\n+ 'th,td{padding:10px 12px;border-bottom:1px solid var(--line);text-align:left}'\n+ 'th{font-size:11.5px;text-transform:uppercase;letter-spacing:.4px;color:var(--mut);'\n+ 'background:#fafbfe}.r{text-align:right}.c{text-align:center;color:var(--mut)}'\n+ 'tfoot td{border-top:2px solid var(--ink);border-bottom:none;font-weight:700;font-size:15px}'\n+ '.total{color:var(--ac);font-size:18px}'\n+ '.erro{padding:10px}.erro pre{background:#fff5f5;border:1px solid #ffd6d6;'\n+ 'border-radius:8px;padding:12px;overflow:auto;font-size:12px}'\n+ '.ft{padding:14px 30px;border-top:1px solid var(--line);color:var(--mut);font-size:12px;text-align:center}'\n+ '</style></head><body><div class=\"sheet\">'\n+ '<div class=\"hd\"><h1>Orçamento Farmacêutico</h1>'\n+ '<p>Gerado automaticamente por busca híbrida (semântica + lexical) + LLM</p></div>'\n+ '<div class=\"body\">' + body + '</div>'\n+ '<div class=\"ft\">Valores sujeitos a confirmação. Documento gerado por sistema RAG.</div>'\n+ '</div></body></html>';\n\nreturn [{ json: { html } }];\n"
+      },
+      "id": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+      "name": "Gerar HTML do Orcamento",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        800,
+        432
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "completion",
+        "respondWith": "showText",
+        "responseText": "={{ $json.html }}",
+        "options": {}
+      },
+      "id": "b9c8d7e6-f5a4-4b3c-9d2e-1f0a9b8c7d6e",
+      "name": "Responder HTML",
+      "type": "n8n-nodes-base.form",
+      "typeVersion": 2.3,
+      "position": [
+        1024,
+        432
+      ],
+      "webhookId": "9b1d4c2a-3e5f-4a6b-8c7d-2e1f0a9b8c7d"
     }
   ],
   "pinData": {},
   "connections": {
-    "Trigger Manual": {
-      "main": [
-        [
-          {
-            "node": "Email de Teste1",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
     "Gerar Embedding da Query": {
       "main": [
         [
@@ -326,7 +361,7 @@
         ]
       ]
     },
-    "Email de Teste1": {
+    "Entrada do Formulario": {
       "main": [
         [
           {
@@ -347,17 +382,45 @@
           }
         ]
       ]
+    },
+    "Formulario de Orcamento": {
+      "main": [
+        [
+          {
+            "node": "Entrada do Formulario",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extrair JSON do Orcamento1": {
+      "main": [
+        [
+          {
+            "node": "Gerar HTML do Orcamento",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gerar HTML do Orcamento": {
+      "main": [
+        [
+          {
+            "node": "Responder HTML",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "active": false,
   "settings": {
     "executionOrder": "v1",
     "binaryMode": "separate"
-  },
-  "versionId": "66c9d8f7-4902-49c9-bc0f-dafbbe8f2b73",
-  "meta": {
-    "templateCredsSetupCompleted": true,
-    "instanceId": "3a2959379a0dc9abd82ae6c8d4c1d6c9c211fd7e4c2ff14e7fae098673d2a5c5"
   },
   "id": "Lv0fvpRryNgAffjK",
   "tags": []
