@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fluxo — Orçamento Farmacêutico Híbrido (RAG)</title>
+<style>
+  :root{
+    --bg:#0f1419; --panel:#171c24; --panel2:#1c2230; --border:#2a3140;
+    --text:#e6e9ef; --muted:#9aa4b2; --accent:#4f9cf9; --accent2:#7c5cff;
+    --green:#3ecf8e; --amber:#f2b765; --pink:#ff7eb6; --code:#0b0e13;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--bg); color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    line-height:1.65; font-size:16px;
+  }
+  .wrap{max-width:960px; margin:0 auto; padding:48px 24px 96px}
+  header.hero{
+    background:linear-gradient(135deg,#1b2233 0%,#141a26 100%);
+    border:1px solid var(--border); border-radius:16px; padding:36px 32px; margin-bottom:40px;
+  }
+  header.hero h1{margin:0 0 8px; font-size:30px; letter-spacing:-.5px}
+  header.hero p{margin:0; color:var(--muted); font-size:17px}
+  .pill-row{margin-top:18px; display:flex; flex-wrap:wrap; gap:8px}
+  .pill{
+    background:var(--panel2); border:1px solid var(--border); color:var(--muted);
+    font-size:12.5px; padding:5px 11px; border-radius:999px; white-space:nowrap;
+  }
+  h2{
+    font-size:22px; margin:48px 0 16px; padding-bottom:8px;
+    border-bottom:1px solid var(--border); letter-spacing:-.3px;
+  }
+  h2 .num{color:var(--accent); font-variant-numeric:tabular-nums; margin-right:10px}
+  h3{font-size:17px; margin:28px 0 10px; color:var(--text)}
+  p{color:#d2d8e2}
+  .muted{color:var(--muted)}
+  code{
+    background:var(--code); border:1px solid var(--border); border-radius:5px;
+    padding:1.5px 6px; font-size:13.5px; font-family:"SF Mono",Menlo,Consolas,monospace; color:var(--green);
+  }
+  pre{
+    background:var(--code); border:1px solid var(--border); border-radius:10px;
+    padding:16px 18px; overflow:auto; font-size:13px; line-height:1.55;
+    font-family:"SF Mono",Menlo,Consolas,monospace; color:#cdd6e4;
+  }
+  pre .c{color:#6b7686}      /* comentário */
+  pre .k{color:var(--pink)}  /* keyword   */
+  pre .s{color:var(--green)} /* string    */
+  .card{
+    background:var(--panel); border:1px solid var(--border); border-radius:12px;
+    padding:22px 24px; margin:18px 0;
+  }
+  .grid2{display:grid; grid-template-columns:1fr 1fr; gap:16px}
+  @media(max-width:680px){.grid2{grid-template-columns:1fr}}
+  .note{
+    border-left:3px solid var(--amber); background:rgba(242,183,101,.07);
+    padding:12px 16px; border-radius:0 8px 8px 0; margin:16px 0; font-size:14.5px;
+  }
+  .note.acc{border-left-color:var(--accent); background:rgba(79,156,249,.07)}
+  .note.grn{border-left-color:var(--green); background:rgba(62,207,142,.07)}
+  table{width:100%; border-collapse:collapse; margin:16px 0; font-size:14px}
+  th,td{border:1px solid var(--border); padding:9px 12px; text-align:left; vertical-align:top}
+  th{background:var(--panel2); color:var(--muted); font-weight:600}
+  td code{font-size:12.5px}
+
+  /* ---- diagrama de fluxo ---- */
+  .flow{margin:24px 0}
+  .lane{
+    display:flex; align-items:stretch; gap:14px; flex-wrap:wrap;
+  }
+  .step{
+    flex:1 1 0; min-width:130px; background:var(--panel2); border:1px solid var(--border);
+    border-radius:10px; padding:13px 14px; position:relative;
+  }
+  .step .tag{font-size:11px; text-transform:uppercase; letter-spacing:.6px; color:var(--muted)}
+  .step .name{font-weight:600; font-size:14.5px; margin-top:3px}
+  .step .desc{font-size:12.5px; color:var(--muted); margin-top:5px; line-height:1.45}
+  .step.acc{border-color:rgba(79,156,249,.5)}
+  .step.v{border-color:rgba(124,92,255,.5)}
+  .step.l{border-color:rgba(242,183,101,.5)}
+  .step.g{border-color:rgba(62,207,142,.5)}
+  .arrow{align-self:center; color:var(--muted); font-size:20px; flex:0 0 auto}
+  .split-label{font-size:12px; color:var(--muted); margin:14px 0 6px; text-align:center}
+
+  ul.clean{padding-left:20px} ul.clean li{margin:6px 0; color:#d2d8e2}
+  .kbd{font-family:"SF Mono",Menlo,monospace; font-size:12.5px; color:var(--amber)}
+  footer{margin-top:64px; padding-top:20px; border-top:1px solid var(--border); color:var(--muted); font-size:13px}
+  .toc{columns:2; column-gap:32px; font-size:14.5px}
+  @media(max-width:680px){.toc{columns:1}}
+  .toc a{color:var(--accent); text-decoration:none; display:block; padding:3px 0}
+  .toc a:hover{text-decoration:underline}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="hero">
+    <h1>Orçamento Farmacêutico Híbrido</h1>
+    <p>Pipeline de <strong>RAG</strong> (Retrieval-Augmented Generation) que lê um e-mail de
+       solicitação, encontra os medicamentos no catálogo usando <strong>busca híbrida</strong>
+       (semântica + lexical) e devolve um orçamento estruturado em JSON gerado por LLM.</p>
+    <div class="pill-row">
+      <span class="pill">n8n · orquestração</span>
+      <span class="pill">LM Studio · embeddings + LLM local</span>
+      <span class="pill">Supabase / Postgres · pgvector</span>
+      <span class="pill">bge-m3 · 1024 dimensões</span>
+      <span class="pill">RRF · Reciprocal Rank Fusion</span>
+      <span class="pill">981 produtos</span>
+    </div>
+  </header>
+
+  <div class="card">
+    <strong>Índice</strong>
+    <div class="toc" style="margin-top:10px">
+      <a href="#visao">1. Visão geral da arquitetura</a>
+      <a href="#chunks">2. Como construímos os chunks</a>
+      <a href="#banco">3. Como construímos o banco de dados</a>
+      <a href="#ingest">4. Ingestão: gerando os embeddings</a>
+      <a href="#fluxo">5. O fluxo de consulta (n8n)</a>
+      <a href="#hibrida">6. Busca híbrida + RRF</a>
+      <a href="#llm">7. Geração do orçamento (LLM)</a>
+      <a href="#stack">8. Componentes e portas</a>
+    </div>
+  </div>
+
+  <!-- ============ 1 ============ -->
+  <h2 id="visao"><span class="num">1</span>Visão geral da arquitetura</h2>
+  <p>O sistema tem duas fases bem distintas. A <strong>fase offline</strong> (feita uma vez)
+     prepara o conhecimento: transforma um CSV de catálogo em pedaços de texto pesquisáveis
+     (<em>chunks</em>) e os carrega no banco vetorial. A <strong>fase online</strong> (a cada
+     e-mail) consulta esse banco e monta o orçamento.</p>
+
+  <div class="grid2">
+    <div class="card">
+      <h3 style="margin-top:0">🛠️ Fase offline — <span class="muted">indexação</span></h3>
+      <ul class="clean">
+        <li><code>main.py</code> → CSV vira <strong>chunks</strong> JSON</li>
+        <li><code>setup.sql</code> → cria a tabela <code>documents</code> + pgvector</li>
+        <li><code>ingest.py</code> → gera <strong>embeddings</strong> e popula o banco</li>
+      </ul>
+      <p class="muted" style="margin-bottom:0; font-size:13.5px">Roda uma vez (ou quando o
+         catálogo muda).</p>
+    </div>
+    <div class="card">
+      <h3 style="margin-top:0">⚡ Fase online — <span class="muted">consulta</span></h3>
+      <ul class="clean">
+        <li>Workflow n8n recebe o e-mail do cliente</li>
+        <li>Busca <strong>semântica</strong> + <strong>lexical</strong> em paralelo</li>
+        <li>Funde resultados com <strong>RRF</strong> e chama a LLM</li>
+        <li>Devolve o <strong>orçamento em JSON</strong></li>
+      </ul>
+      <p class="muted" style="margin-bottom:0; font-size:13.5px">Roda a cada solicitação de
+         orçamento.</p>
+    </div>
+  </div>
+
+  <div class="note acc">
+    <strong>Por que "híbrido"?</strong> A busca semântica entende <em>significado</em>
+    (ex.: "remédio para herpes" acha "ACICLOVIR"), mas erra em códigos e nomes exatos.
+    A busca lexical acerta o código SAP e o texto literal, mas não entende sinônimos.
+    Combinar as duas via RRF dá o melhor dos dois mundos.
+  </div>
+
+  <!-- ============ 2 ============ -->
+  <h2 id="chunks"><span class="num">2</span>Como construímos os chunks</h2>
+  <p>Script: <code>main.py</code>. Ele baixa o CSV oficial do catálogo (separado por
+     <code>;</code>, padrão de arquivo fiscal) e converte <strong>cada linha de produto em um
+     "chunk"</strong> — um objeto pronto para indexação. São <strong>981 produtos</strong> no
+     total.</p>
+
+  <p>Cada chunk tem três partes, e a separação entre elas é o ponto-chave do desenho:</p>
+
+  <table>
+    <tr><th>Campo</th><th>Papel</th><th>Conteúdo</th></tr>
+    <tr>
+      <td><code>id</code></td>
+      <td>Chave única</td>
+      <td><code>sap_1006459</code> — prefixo <code>sap_</code> + código SAP</td>
+    </tr>
+    <tr>
+      <td><code>page_content</code></td>
+      <td><span style="color:var(--accent)">Texto que vira embedding</span></td>
+      <td>Frase legível: apresentação, princípio ativo, código SAP/EAN, família, tipo</td>
+    </tr>
+    <tr>
+      <td><code>metadata</code></td>
+      <td><span style="color:var(--amber)">Payload "oculto" p/ cálculo</span></td>
+      <td>Todos os preços por faixa de ICMS (PF e PMC), PIS, COFINS, NCM, etc.</td>
+    </tr>
+  </table>
+
+  <pre><span class="c"># main.py — o texto que a LLM/embedding vai "ler" para achar o produto</span>
+page_content = <span class="s">f"Apresentação: {apresentacao}. Princípio Ativo: {principio_ativo}. "</span>
+               <span class="s">f"Código SAP: {codigo_sap}. Código EAN: {ean}. "</span>
+               <span class="s">f"Família: {familia}. Tipo: {tipo_med}."</span>
+
+<span class="c"># O payload "oculto" que o n8n usa depois para a matemática do preço</span>
+metadata = {
+  <span class="s">"codigo_sap"</span>: codigo_sap,
+  <span class="s">"apresentacao"</span>: apresentacao,
+  <span class="s">"icms_17_pf"</span>:  to_float(row.get(<span class="s">'ICMS 17 % (PF)'</span>)),   <span class="c"># preço Pessoa Física</span>
+  <span class="s">"icms_17_pmc"</span>: to_float(row.get(<span class="s">'ICMS 17 % (PMC)'</span>)),  <span class="c"># preço Máximo ao Consumidor</span>
+  <span class="c"># ... faixas 0/12/17,5/18/20 %, áreas de livre comércio, PIS, COFINS</span>
+}</pre>
+
+  <div class="note grn">
+    <strong>A ideia central:</strong> só o <code>page_content</code> é vetorizado e usado para
+    <em>encontrar</em> o produto. Os preços ficam no <code>metadata</code> — eles não poluem a
+    busca semântica, mas estão à mão na hora de <em>calcular</em> o orçamento. Cada texto é curto
+    e autocontido (1 produto = 1 chunk), o que dá embeddings precisos e evita "diluição" de
+    contexto.
+  </div>
+
+  <p class="muted">Saída: <code>chunks_hibridos_catalogo_completo.json</code> — uma lista com os
+     981 objetos acima.</p>
+
+  <!-- ============ 3 ============ -->
+  <h2 id="banco"><span class="num">3</span>Como construímos o banco de dados</h2>
+  <p>Script: <code>setup.sql</code> (rodado uma vez no SQL Editor do Supabase). Ele liga a
+     extensão <strong>pgvector</strong> e cria a tabela <code>documents</code>, que é o coração
+     do retrieval.</p>
+
+  <pre><span class="k">create extension if not exists</span> vector;          <span class="c">-- habilita o tipo vector no Postgres</span>
+
+<span class="k">create table</span> documents (
+  id        bigserial <span class="k">primary key</span>,
+  chunk_id  text <span class="k">unique</span>,                 <span class="c">-- = id do chunk (sap_xxxx)</span>
+  content   text <span class="k">not null</span>,               <span class="c">-- = page_content</span>
+  metadata  jsonb <span class="k">not null</span>,              <span class="c">-- = metadata (preços!)</span>
+  embedding vector(<span class="s">1024</span>)                 <span class="c">-- vetor do bge-m3</span>
+);
+
+<span class="c">-- Índice ANN para busca semântica rápida por distância de cosseno</span>
+<span class="k">create index</span> documents_embedding_hnsw
+  <span class="k">on</span> documents <span class="k">using</span> hnsw (embedding vector_cosine_ops);
+
+<span class="c">-- Índice no código SAP dentro do JSON, para a busca lexical exata</span>
+<span class="k">create index</span> documents_metadata_codigo_sap
+  <span class="k">on</span> documents ((metadata->><span class="s">'codigo_sap'</span>));</pre>
+
+  <p>Dois índices, um para cada modo de busca:</p>
+  <ul class="clean">
+    <li><strong>HNSW</strong> (<code>vector_cosine_ops</code>) — acelera o vizinho-mais-próximo
+        aproximado usado na busca <em>semântica</em>.</li>
+    <li><strong>Índice em <code>metadata->>'codigo_sap'</code></strong> — acelera o filtro exato
+        por código usado na busca <em>lexical</em>.</li>
+  </ul>
+  <p>O arquivo ainda cria a função <code>match_documents(...)</code> (helper opcional do padrão
+     n8n Vector Store); o workflow atual, porém, monta as queries SQL à mão para controlar o
+     híbrido — ver seção 6.</p>
+
+  <!-- ============ 4 ============ -->
+  <h2 id="ingest"><span class="num">4</span>Ingestão: gerando os embeddings</h2>
+  <p>Script: <code>ingest.py</code>. Ele lê o JSON de chunks, pede a <strong>LM Studio</strong>
+     (servidor local com o modelo <code>bge-m3</code>) que transforme cada
+     <code>page_content</code> em um vetor de 1024 dimensões, e faz <code>upsert</code> em lote
+     na tabela <code>documents</code>.</p>
+
+  <div class="flow">
+    <div class="lane">
+      <div class="step"><div class="tag">entrada</div><div class="name">chunks JSON</div><div class="desc">981 produtos</div></div>
+      <div class="arrow">→</div>
+      <div class="step acc"><div class="tag">LM Studio</div><div class="name">/v1/embeddings</div><div class="desc">bge-m3 → vetor 1024d, em lotes de 32</div></div>
+      <div class="arrow">→</div>
+      <div class="step g"><div class="tag">Supabase</div><div class="name">upsert documents</div><div class="desc">on_conflict = chunk_id</div></div>
+    </div>
+  </div>
+
+  <pre><span class="c"># ingest.py — laço principal (resumido)</span>
+<span class="k">for</span> start <span class="k">in</span> range(<span class="s">0</span>, len(chunks), batch_size):       <span class="c"># BATCH_SIZE=32</span>
+    batch   = chunks[start:start+batch_size]
+    texts   = [c[<span class="s">"page_content"</span>] <span class="k">for</span> c <span class="k">in</span> batch]
+    vectors = embed_batch(http, base_url, model, texts)     <span class="c"># chama LM Studio</span>
+
+    rows = [{
+        <span class="s">"chunk_id"</span>:  c[<span class="s">"id"</span>],
+        <span class="s">"content"</span>:   c[<span class="s">"page_content"</span>],
+        <span class="s">"metadata"</span>:  c[<span class="s">"metadata"</span>],
+        <span class="s">"embedding"</span>: vec,
+    } <span class="k">for</span> c, vec <span class="k">in</span> zip(batch, vectors)]
+
+    supabase.table(table).upsert(rows, on_conflict=<span class="s">"chunk_id"</span>).execute()</pre>
+
+  <div class="note">
+    <strong>Sanity check de dimensão:</strong> antes de processar tudo, o script vetoriza
+    <em>um</em> texto e confere se o modelo devolve exatamente <code>EMBEDDING_DIM</code> (1024).
+    Se não bater com o <code>vector(1024)</code> do SQL, ele aborta — evita popular o banco com
+    vetores do tamanho errado. O <code>upsert</code> por <code>chunk_id</code> torna a ingestão
+    <strong>idempotente</strong>: rodar de novo atualiza em vez de duplicar.
+  </div>
+
+  <!-- ============ 5 ============ -->
+  <h2 id="fluxo"><span class="num">5</span>O fluxo de consulta (workflow n8n)</h2>
+  <p>Arquivo: <code>Orcamento Farmaceutico Hibrido.json</code>. É o workflow do n8n que roda a
+     cada solicitação. Visão de ponta a ponta:</p>
+
+  <div class="flow">
+    <div class="lane">
+      <div class="step"><div class="tag">1 · trigger</div><div class="name">Trigger Manual</div><div class="desc">dispara o teste</div></div>
+      <div class="arrow">→</div>
+      <div class="step"><div class="tag">2 · entrada</div><div class="name">Email de Teste</div><div class="desc">texto do pedido do cliente</div></div>
+      <div class="arrow">→</div>
+      <div class="step acc"><div class="tag">3 · embedding</div><div class="name">Gerar Embedding da Query</div><div class="desc">LM Studio vetoriza o e-mail</div></div>
+    </div>
+    <div class="split-label">↓ &nbsp; node "Preparar Buscas" monta DUAS queries SQL e abre dois caminhos paralelos &nbsp; ↓</div>
+    <div class="lane">
+      <div class="step v"><div class="tag">4a · semântica</div><div class="name">Busca Semântica</div><div class="desc">ORDER BY embedding &lt;=&gt; query · LIMIT 20</div></div>
+      <div class="step l"><div class="tag">4b · lexical</div><div class="name">Busca Lexical</div><div class="desc">WHERE codigo_sap = … OR content ILIKE … · LIMIT 20</div></div>
+    </div>
+    <div class="split-label">↓ &nbsp; Merge combina os dois ramos &nbsp; ↓</div>
+    <div class="lane">
+      <div class="step g"><div class="tag">5 · fusão</div><div class="name">Aplicar RRF + Montar Prompt</div><div class="desc">funde rankings, pega top-10, monta o prompt</div></div>
+      <div class="arrow">→</div>
+      <div class="step acc"><div class="tag">6 · LLM</div><div class="name">Chamar LM Studio</div><div class="desc">gemma-3n gera o orçamento</div></div>
+      <div class="arrow">→</div>
+      <div class="step g"><div class="tag">7 · saída</div><div class="name">Extrair JSON</div><div class="desc">parse → orçamento final</div></div>
+    </div>
+  </div>
+
+  <h3>Exemplo de e-mail de entrada</h3>
+  <pre>Ola, gostaria de receber um orcamento:
+10x ACICLOVIR 200MG COM BLX25
+10x BIOMAG 15MG CAP BLX30
+
+Jose Farmacia - Rio de Janeiro - RJ</pre>
+
+  <!-- ============ 6 ============ -->
+  <h2 id="hibrida"><span class="num">6</span>Busca híbrida + RRF</h2>
+  <p>O node <strong>"Preparar Buscas"</strong> recebe o embedding do e-mail e monta as duas
+     queries que rodam em paralelo contra a mesma tabela <code>documents</code>:</p>
+
+  <div class="grid2">
+    <div class="card">
+      <h3 style="margin-top:0; color:var(--accent2)">🔎 Semântica (vetorial)</h3>
+      <pre style="margin:0"><span class="k">SELECT</span> chunk_id, content, metadata,
+       <span class="s">1</span> - (embedding &lt;=&gt; <span class="s">'[...vetor...]'</span>) <span class="k">AS</span> score
+<span class="k">FROM</span> documents
+<span class="k">ORDER BY</span> embedding &lt;=&gt; <span class="s">'[...vetor...]'</span>
+<span class="k">LIMIT</span> <span class="s">20</span>;</pre>
+      <p class="muted" style="font-size:13px; margin-bottom:0">Ordena por proximidade de cosseno
+         (<code>&lt;=&gt;</code>). Acha produtos por <em>significado</em>.</p>
+    </div>
+    <div class="card">
+      <h3 style="margin-top:0; color:var(--amber)">🔡 Lexical (texto/código)</h3>
+      <pre style="margin:0"><span class="k">SELECT</span> chunk_id, content, metadata, <span class="s">1.0 AS</span> score
+<span class="k">FROM</span> documents
+<span class="k">WHERE</span> metadata->><span class="s">'codigo_sap'</span> = <span class="s">'1006459'</span>
+   <span class="k">OR</span> content <span class="k">ILIKE</span> <span class="s">'%ACICLOVIR%'</span>
+<span class="k">LIMIT</span> <span class="s">20</span>;</pre>
+      <p class="muted" style="font-size:13px; margin-bottom:0">O node extrai <strong>códigos</strong>
+         (6–7 dígitos) e <strong>palavras-chave</strong> do e-mail, removendo <em>stopwords</em>
+         (para, com, orcamento…).</p>
+    </div>
+  </div>
+
+  <h3>Fusão por RRF (Reciprocal Rank Fusion)</h3>
+  <p>O node <strong>"Aplicar RRF e Montar Prompt"</strong> combina as duas listas. Cada documento
+     ganha pontos pela <em>posição</em> (rank) que ocupou em cada busca — não pelo score bruto,
+     o que evita ter de normalizar escalas diferentes (cosseno vs. ILIKE):</p>
+
+  <pre><span class="k">const</span> K = <span class="s">60</span>;  <span class="c">// constante padrão do RRF</span>
+
+<span class="c">// para cada documento, em cada lista, soma 1 / (K + posição)</span>
+score[id] += <span class="s">1</span> / (K + idx + <span class="s">1</span>);
+
+<span class="c">// ordena por score combinado e fica com os 10 melhores</span>
+topDocs = Object.entries(scores).sort((a,b) =&gt; b[<span class="s">1</span>] - a[<span class="s">1</span>]).slice(<span class="s">0</span>, <span class="s">10</span>);</pre>
+
+  <p class="muted">Um produto que aparece <em>bem colocado nas duas</em> buscas sobe ao topo —
+     que é exatamente o sinal de maior confiança. Os 10 vencedores, já com seus preços
+     (<code>metadata</code>), formam o "catálogo relevante" entregue à LLM.</p>
+
+  <!-- ============ 7 ============ -->
+  <h2 id="llm"><span class="num">7</span>Geração do orçamento (LLM)</h2>
+  <p>O mesmo node monta um prompt com (a) o e-mail original e (b) os 10 produtos top-RRF
+     formatados com todas as faixas de preço. O node <strong>"Chamar LM Studio"</strong> envia
+     isso a um modelo de chat local (<code>gemma-3n</code>) com instruções precisas:</p>
+
+  <ul class="clean">
+    <li>Casar o que o cliente pediu com os produtos do catálogo</li>
+    <li>Extrair <strong>quantidades</strong> (padrão 1 se não informado)</li>
+    <li>Identificar <strong>tipo de cliente</strong> (PF, PJ ou Revenda) e <strong>UF</strong></li>
+    <li>Escolher o preço: PF/PJ → <code>icms_17_pf</code>; Revenda → <code>icms_17_pmc</code></li>
+    <li>Calcular <code>preço_total = quantidade × preço_unitário</code> e o total geral</li>
+    <li>Responder <strong>apenas com JSON válido</strong>, sem markdown</li>
+  </ul>
+
+  <p>Por fim, o node <strong>"Extrair JSON do Orçamento"</strong> limpa eventuais cercas de
+     código e faz <code>JSON.parse</code>, devolvendo a estrutura final:</p>
+
+  <pre>{
+  <span class="s">"itens"</span>: [
+    { <span class="s">"produto"</span>:<span class="s">"ACICLOVIR 200MG COM BLX25"</span>, <span class="s">"codigo"</span>:<span class="s">"1006459"</span>,
+      <span class="s">"quantidade"</span>:<span class="s">10</span>, <span class="s">"preco_unitario"</span>:<span class="s">93.67</span>, <span class="s">"preco_total"</span>:<span class="s">936.70</span> },
+    { <span class="s">"produto"</span>:<span class="s">"BIOMAG 15MG CAP BLX30"</span>, <span class="s">"codigo"</span>:<span class="s">"1002589"</span>,
+      <span class="s">"quantidade"</span>:<span class="s">10</span>, <span class="s">"preco_unitario"</span>:<span class="s">35.54</span>, <span class="s">"preco_total"</span>:<span class="s">355.40</span> }
+  ],
+  <span class="s">"cliente"</span>: { <span class="s">"tipo"</span>:<span class="s">"PJ"</span>, <span class="s">"uf"</span>:<span class="s">"RJ"</span> },
+  <span class="s">"total"</span>: <span class="s">1292.10</span>
+}</pre>
+
+  <div class="note grn">
+    <strong>Resumo do "porquê":</strong> a LLM nunca inventa preços — ela só escolhe entre os
+    valores reais que vieram no <code>metadata</code> dos produtos recuperados. O retrieval
+    garante <em>dados corretos</em>; a LLM faz a <em>interpretação e a aritmética</em>. É isso
+    que torna o resultado confiável.
+  </div>
+
+  <!-- ============ 8 ============ -->
+  <h2 id="stack"><span class="num">8</span>Componentes e portas</h2>
+  <table>
+    <tr><th>Componente</th><th>Papel</th><th>Endereço / modelo</th></tr>
+    <tr><td>n8n</td><td>Orquestra todo o fluxo online</td><td>workflow <code>Lv0fvpRryNgAffjK</code></td></tr>
+    <tr><td>LM Studio — embeddings</td><td>Vetoriza textos (offline e query)</td><td><code>:1234/v1/embeddings</code> · <code>bge-m3</code> (1024d)</td></tr>
+    <tr><td>LM Studio — chat</td><td>Gera o orçamento JSON</td><td><code>:1234/v1/chat/completions</code> · <code>gemma-3n</code></td></tr>
+    <tr><td>Supabase / Postgres</td><td>Banco vetorial + lexical</td><td>tabela <code>documents</code> · pgvector</td></tr>
+  </table>
+
+  <div class="note">
+    <strong>Tudo local:</strong> embeddings e LLM rodam na própria máquina via LM Studio
+    (<code>172.17.0.1:1234</code> = host visto de dentro do container do n8n). Nenhum dado de
+    catálogo ou de cliente sai para serviços externos.
+  </div>
+
+  <footer>
+    Documento gerado a partir de <span class="kbd">src/build_chunks.py</span>,
+    <span class="kbd">src/ingest.py</span>, <span class="kbd">sql/setup.sql</span> e
+    <span class="kbd">n8n/orcamento-farmaceutico-hibrido.json</span>.
+    &nbsp;·&nbsp; Projeto: busca-produtos (IBMEC / Extração).
+  </footer>
+
+</div>
+</body>
+</html>

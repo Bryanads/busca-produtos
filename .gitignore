@@ -1,0 +1,22 @@
+# Segredos — NUNCA commitar (contém a SERVICE_ROLE key do Supabase)
+.env
+
+# Ambiente Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Configurações locais do Claude Code
+.claude/settings.local.json
+
+# Artefatos / backups que não pertencem ao versionamento
+trab-alvaro.zip
+*.zip
+
+# Sistema operacional / editores
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
