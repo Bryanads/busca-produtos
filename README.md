@@ -44,8 +44,8 @@ fundidas por RRF) e devolve um **orçamento estruturado em JSON** gerado por uma
 
 - **Python 3.10+**
 - **LM Studio** rodando localmente com:
-  - um modelo de **embedding** carregado (ex.: `bge-m3`, 1024 dimensões);
-  - um modelo de **chat** para gerar o orçamento (ex.: `gemma-3n`).
+  - um modelo de **embedding** carregado (text-embedding-bge-m3`, 1024 dimensões);
+  - um modelo de **chat** para gerar o orçamento (gemma-3n-e4b-it-text).
 - Um projeto no **Supabase** (Postgres com a extensão `vector`).
 - **n8n** (para executar o workflow de consulta).
 
