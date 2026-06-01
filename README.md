@@ -1,3 +1,4 @@
+## Bryan Santos, Gustavo Salvador e Julia Curto
 # Orçamento Farmacêutico Híbrido
 
 Pipeline de **RAG** (Retrieval-Augmented Generation) que lê um e-mail de solicitação de
