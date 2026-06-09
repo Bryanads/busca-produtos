@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="pt-BR"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AP2 — Sistema Profissional de Orçamentação com RAG</title>
+<style>
+:root{--ac:#2f6df6;--ink:#1b2330;--mut:#5b6675;--line:#e3e8f0;--bg:#f6f8fc;--ok:#0a7d3c;--warn:#9a6b00;--err:#b3261e;--code:#0f1b2d}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;line-height:1.6}
+.wrap{max-width:900px;margin:0 auto;padding:0 22px 60px}
+header{background:linear-gradient(135deg,#2f6df6,#5b8bff);color:#fff;padding:46px 22px 38px;margin-bottom:30px}
+header .wrap{padding-bottom:0}
+h1{margin:0 0 6px;font-size:27px;letter-spacing:-.4px}
+header p{margin:0;opacity:.92;font-size:15px}
+.authors{margin-top:14px;font-size:13.5px;opacity:.9}
+h2{font-size:20px;margin:34px 0 12px;padding-bottom:7px;border-bottom:2px solid var(--line)}
+h3{font-size:16px;margin:22px 0 8px}
+p,li{font-size:15px}
+code{background:#eef2f9;padding:1.5px 6px;border-radius:5px;font-size:13px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+pre{background:var(--code);color:#e6edf6;padding:14px 16px;border-radius:9px;overflow:auto;font-size:12.5px;line-height:1.5;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre-wrap;word-break:break-word}
+table{width:100%;border-collapse:collapse;font-size:14px;margin:10px 0}
+th,td{text-align:left;padding:8px 11px;border-bottom:1px solid var(--line);vertical-align:top}
+th{background:#eef2fb;font-size:12.5px;text-transform:uppercase;letter-spacing:.4px;color:var(--mut)}
+/* --- Diagrama de arquitetura --- */
+.diagram{margin:18px 0}
+.wf{border:1px solid var(--line);border-radius:12px;margin:12px 0;overflow:hidden;background:#fff}
+.wf-h{padding:9px 14px;font-size:13.5px;font-weight:700;color:#fff;display:flex;align-items:center;gap:8px}
+.wf-h code{background:rgba(255,255,255,.22);color:#fff}
+.wf-h .n{display:inline-flex;align-items:center;justify-content:center;width:19px;height:19px;border-radius:50%;background:rgba(255,255,255,.28);font-size:12px;font-weight:700}
+.wf-h span{margin-left:auto;font-weight:500;font-size:11.5px;opacity:.92;text-transform:none;letter-spacing:0}
+.wf-h.ing{background:#0a7d3c}
+.wf-h.con{background:#2f6df6}
+.wf-h.ger{background:#7b53d6}
+.pipe{display:flex;align-items:center;flex-wrap:wrap;gap:6px 4px;padding:12px 14px}
+.pipe.sub{padding-top:0;padding-left:26px}
+.step{display:inline-block;background:#eef2fb;border:1px solid var(--line);border-radius:7px;padding:5px 10px;font-size:12.5px;font-weight:600;color:var(--ink)}
+.step.hl{background:#fff3d9;border-color:#f0d590}
+.step.db{background:#e3f5ea;border-color:#bfe6cd}
+.step.io{background:#e7eefe;border-color:#c4d6fb}
+.step.ai{background:#efe7fb;border-color:#d6c4f3}
+.step.dec{background:#fde9e9;border-color:#f6c9c9}
+.step.call{background:#efe7fb;border-color:#d6c4f3;border-style:dashed;font-weight:700}
+.step.in,.step.out{background:#f0f2f6;color:var(--mut);font-style:italic}
+.arr{color:var(--mut);font-weight:700;font-size:14px}
+.branch{font-size:12px;color:var(--ok);background:#eefaf1;border-radius:6px;padding:3px 9px;margin-left:6px}
+.muted{font-size:12px;color:var(--mut);margin-right:4px}
+.note{background:#eef5ff;border-left:4px solid var(--ac);padding:10px 14px;border-radius:0 8px 8px 0;margin:12px 0;font-size:14px}
+.warn{background:#fff8e8;border-left:4px solid var(--warn)}
+/* --- Guia de passos (seção 0) --- */
+.steps{list-style:none;counter-reset:s;padding:0;margin:16px 0}
+.steps>li{counter-increment:s;position:relative;padding:0 0 16px 44px;margin:0}
+.steps>li::before{content:counter(s);position:absolute;left:0;top:0;width:28px;height:28px;border-radius:50%;background:var(--ac);color:#fff;font-weight:700;font-size:14px;display:flex;align-items:center;justify-content:center}
+.steps>li::after{content:"";position:absolute;left:13px;top:30px;bottom:-2px;width:2px;background:var(--line)}
+.steps>li:last-child::after{display:none}
+.steps .st{font-weight:700;font-size:15px;display:block;margin-bottom:3px}
+.steps p{margin:4px 0}
+.steps pre{margin:8px 0}
+.chk{font-size:13px;color:var(--ok);background:#eefaf1;border-radius:6px;padding:2px 8px;display:inline-block}
+footer{margin-top:40px;padding-top:16px;border-top:1px solid var(--line);color:var(--mut);font-size:13px}
+@media print{body{background:#fff}header{background:#2f6df6 !important;-webkit-print-color-adjust:exact;print-color-adjust:exact}pre,.wf{break-inside:avoid}.steps>li{break-inside:avoid}}
+</style></head>
+<body>
+<header><div class="wrap">
+  <h1>Sistema Profissional de Orçamentação com RAG</h1>
+  <p>AP2 — Pipeline RAG farmacêutico: webhook, busca híbrida (semântica + lexical) com RRF, LLM local e resposta JSON estruturada.</p>
+  <div class="authors">Bryan Santos · Gustavo Salvador · Julia Curto</div>
+</div></header>
+<div class="wrap">
+
+<h2>0. Como rodar (passo a passo)</h2>
+<p>Este guia assume o ambiente de correção: o <b>n8n já está rodando</b> (Docker) em
+<code>http://localhost:5678</code>. A solução usa um <b>Supabase já populado</b> (os ~981 produtos do
+catálogo já estão indexados), ao qual o corretor apenas se conecta. Bastam quatro passos.</p>
+
+<ol class="steps">
+
+<li><span class="st">Conectar a credencial do banco</span>
+<p>No n8n: <b>Credentials → New → Postgres</b> e <b>nomeie como <code>supabase</code></b> (é o nome que
+os nós Postgres dos fluxos já esperam). Preencha os campos de conexão do Supabase fornecido:</p>
+<pre>Host:      &lt;host do Supabase&gt;        Database: postgres
+Port:      5432 (ou 6543, pooler)    SSL:      require
+User:      &lt;usuário&gt;                 Password: &lt;senha&gt;</pre>
+<div class="note warn">Os valores de conexão (host, usuário, senha) são entregues <b>à parte</b> — não
+ficam neste documento nem nos JSON exportados, por segurança. Os <code>.json</code> dos fluxos só
+referenciam a credencial pelo nome <code>supabase</code>; nenhum segredo viaja neles.</div>
+<p class="chk">o banco já tem a tabela <code>documents</code> populada (~981 produtos); não é preciso reindexar.</p>
+</li>
+
+<li><span class="st">Garantir o LM Studio (modelos locais)</span>
+<p>Com o servidor do LM Studio ativo (porta <code>1234</code>), confirme os dois modelos carregados:</p>
+<pre>embedding: text-embedding-bge-m3   (1024 dimensões)
+chat:      gemma-3n-e4b-it-text</pre>
+<p>Os fluxos acessam o LM Studio em <code>http://172.17.0.1:1234</code> — o IP do host visto de dentro
+do container do n8n (nada precisa ser exposto à internet).</p>
+<p class="chk">teste: <code>curl http://localhost:1234/v1/models</code> deve listar os dois.</p>
+</li>
+
+<li><span class="st">Importar e ativar o fluxo de consulta</span>
+<p>Importe pela interface (<b>Workflows → Import from File</b>) o arquivo
+<code>n8n/wf_consulta.json</code>, ou via terminal:</p>
+<pre>docker cp n8n/wf_consulta.json n8n:/tmp/ \
+  && docker exec n8n n8n import:workflow --input=/tmp/wf_consulta.json
+# ative o fluxo (reiniciar registra o webhook de produção):
+docker exec n8n n8n update:workflow --id=ap2consultaWF0001 --active=true && docker restart n8n</pre>
+</li>
+
+<li><span class="st">Testar a consulta</span>
+<p>Uma chamada direta ao webhook:</p>
+<pre>curl -X POST http://localhost:5678/webhook/orcamento \
+  -H "Content-Type: application/json" \
+  -d '{"email":"Preciso de 3 unidades de ACCUVIT."}'</pre>
+<p>Há também um arquivo com os <b>10 casos do enunciado em curl</b>
+(<code>requests/requisicoes.sh</code>) e uma suíte Python que envia os 10 pedidos e <b>verifica</b>
+as respostas automaticamente:</p>
+<pre>bash requests/requisicoes.sh      # imprime as respostas dos 10 casos
+python tests/enviar_pedidos.py    # envia e valida (status, preço, total)</pre>
+</li>
+
+</ol>
+
+<div class="note">Precisa reconstruir a base do zero (catálogo novo)? Importe também
+<code>wf_ingestao.json</code>, rode o <code>sql/setup.sql</code> no Supabase e dispare o
+<b>Manual Trigger</b> do fluxo de ingestão (gera ~981 chunks e grava em massa).</div>
+
+<h2>1. Visão geral</h2>
+<p>API de <b>orçamentação farmacêutica baseada em RAG</b>. Recebe uma solicitação em linguagem natural
+(via webhook), encontra os medicamentos no catálogo por <b>busca híbrida</b> (semântica + lexical,
+fundidas por RRF) e devolve um <b>orçamento estruturado em JSON</b>. Os modelos rodam localmente no
+LM Studio (<code>bge-m3</code> para embeddings, <code>gemma-3n</code> para identificação); o banco é o
+Supabase com <code>pgvector</code>.</p>
+
+<h2>2. Arquitetura</h2>
+<p>A solução tem <b>dois fluxos n8n</b>: um de <b>ingestão</b> (offline, popula o banco) e um de
+<b>consulta</b> (online, atende cada pedido via webhook).</p>
+
+<div class="diagram">
+
+  <div class="wf">
+    <div class="wf-h ing"><b class="n">1</b> Ingestão · <code>wf_ingestao</code> <span>offline · manual</span></div>
+    <div class="pipe">
+      <span class="step">Baixar CSV</span><span class="arr">→</span>
+      <span class="step">Gerar Chunks</span><span class="arr">→</span>
+      <span class="step">Embedding</span><span class="arr">→</span>
+      <span class="step hl">1 upsert em massa</span><span class="arr">→</span>
+      <span class="step db">documents (pgvector)</span>
+    </div>
+  </div>
+
+  <div class="wf">
+    <div class="wf-h con"><b class="n">2</b> Consulta · <code>wf_consulta</code> <span>webhook · online</span></div>
+    <div class="pipe">
+      <span class="step io">Webhook POST</span><span class="arr">→</span>
+      <span class="step">Normalizar</span><span class="arr">→</span>
+      <span class="step dec">Cache?</span>
+      <span class="branch">hit → responde na hora</span>
+    </div>
+    <div class="pipe sub">
+      <span class="muted">miss ↓</span>
+      <span class="step">Embedding</span><span class="arr">→</span>
+      <span class="step">Busca Semântica + Lexical</span><span class="arr">→</span>
+      <span class="step hl">RRF (re-rank)</span>
+    </div>
+    <div class="pipe sub">
+      <span class="arr">↓</span>
+      <span class="step ai">LLM (gemma-3n)</span><span class="arr">→</span>
+      <span class="step hl">Matching + pós-correção + preço</span><span class="arr">→</span>
+      <span class="step">Log</span><span class="arr">→</span>
+      <span class="step io">Respond to Webhook</span>
+    </div>
+  </div>
+
+</div>
+
+<p>O fluxo de consulta começa pelo <b>cache</b> (pedidos repetidos respondem na hora); em caso de
+<i>miss</i>, faz a <b>busca híbrida</b> + RRF, chama a <b>LLM</b> para identificar os produtos e monta
+a resposta (matching, pós-correção determinística, preço e status). O fluxo de <b>ingestão</b> roda
+separado, offline, para popular o banco.</p>
+
+<h3>Como o produto é encontrado (busca híbrida + RRF)</h3>
+<p>Duas buscas rodam em paralelo no Supabase e são fundidas por <b>Reciprocal Rank Fusion</b>:</p>
+<table>
+<tr><th>Busca</th><th>Como funciona</th><th>Boa para</th></tr>
+<tr><td><b>Semântica</b></td><td><code>embedding &lt;=&gt; query</code> (cosseno) no pgvector</td><td>linguagem natural, sinônimos, erros de digitação</td></tr>
+<tr><td><b>Lexical</b></td><td><code>content ILIKE</code> + match exato de código SAP</td><td>nome comercial e código exatos</td></tr>
+<tr><td><b>RRF</b></td><td>score = Σ 1/(K+rank), K=60, com boost lexical e dedup por apresentação</td><td>combinar e re-ranquear os dois sinais</td></tr>
+</table>
+
+<h3>Como o orçamento é montado (sem confiar só na IA)</h3>
+<p>A LLM apenas <b>identifica</b> os produtos (qual candidato, quantidade, ICMS) — ela <b>não calcula
+preços</b>. O preço unitário é buscado direto no <code>metadata</code> do produto (faixa PMC do ICMS),
+e <code>total = Σ(preço × quantidade)</code>. Sobre isso há uma camada determinística que reduz a
+dependência do modelo: códigos SAP citados entram por regra, quantidades são corrigidas pelo texto, e
+um <i>guard-rail</i> rejeita alucinações e detecta ambiguidade.</p>
+
+<h2>3. Diferenciais implementados</h2>
+<p>Além dos requisitos obrigatórios, a solução incorpora vários diferenciais do enunciado:</p>
+<table>
+<tr><th>Diferencial</th><th>Como foi implementado</th></tr>
+<tr><td><b>Estratégias híbridas</b> (vetorial + palavras-chave)</td><td>Busca semântica (pgvector) + lexical (ILIKE/SAP) fundidas por RRF.</td></tr>
+<tr><td><b>Re-ranking</b> dos resultados</td><td>O RRF reordena os candidatos das duas buscas antes de enviar à LLM.</td></tr>
+<tr><td><b>Sinônimos</b> e variações de nome</td><td>Mapa de sinônimos (ex.: "herpes" → aciclovir) e normalização de formas (comprimido→COM, creme→CREM…) expandem a busca.</td></tr>
+<tr><td><b>Cache</b> de consultas</td><td>Pedidos idênticos respondem em <b>~0,02 s</b> (vs ~4,5 s). Só respostas <code>200</code> são cacheadas.</td></tr>
+<tr><td><b>Logs estruturados</b> + métricas</td><td>Nó "Registrar Log": JSON por requisição (solicitação, status, nº de itens, candidatos recuperados) na aba de execuções.</td></tr>
+<tr><td><b>Resolução determinística</b> (menos IA)</td><td>Código SAP entra por regra; quantidades corrigidas por proximidade no texto, desambiguando por dosagem.</td></tr>
+</table>
+<div class="note">Eficiência na ingestão: os embeddings são gerados por chunk, mas as linhas são
+<b>acumuladas e gravadas num único upsert em massa</b> (uma transação) ao final — em vez de um insert
+por produto.</div>
+
+<h2>4. Tratamento de erros (por etapa)</h2>
+<p>Cada etapa de I/O (embedding, banco, LLM) usa <code>onError</code> e desvia para uma <b>etiqueta de
+etapa</b> que converge num nó central <b>Tratar Erro</b> → <b>Responder Erro</b>. O status reflete
+<i>onde</i> falhou — não é sempre 500.</p>
+<table>
+<tr><th>Situação</th><th>Status</th></tr>
+<tr><td>Orçamento gerado</td><td>200</td></tr>
+<tr><td>Entrada vazia / inválida</td><td>400</td></tr>
+<tr><td>Produto inexistente</td><td>404</td></tr>
+<tr><td>Pedido ambíguo (dosagens diferentes)</td><td>422</td></tr>
+<tr><td>Serviço de IA fora (embeddings/LLM)</td><td><b>503</b></td></tr>
+<tr><td>Banco indisponível / erro SQL</td><td><b>502</b></td></tr>
+<tr><td>Resposta do modelo ilegível</td><td>500</td></tr>
+</table>
+<p>Cada resposta de erro traz <code>etapa</code> e <code>componente</code> para diagnóstico. O fluxo de
+<b>ingestão</b> segue o mesmo padrão por etapa, finalizando com <b>Stop and Error</b> (sem falha
+silenciosa).</p>
+
+<footer>
+Trabalho AP2 — Sistema Profissional de Orçamentação com RAG · Bryan Santos, Gustavo Salvador e Julia Curto.<br>
+Stack: n8n · Supabase/pgvector · LM Studio (bge-m3 + gemma-3n).
+</footer>
+</div></body></html>

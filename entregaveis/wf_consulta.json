@@ -1,0 +1,860 @@
+{
+  "id": "ap2consultaWF0001",
+  "name": "AP2 - Consulta de Orcamento (Webhook)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "orcamento",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "10000000-0000-4000-8000-000000000001",
+      "name": "Webhook Solicitacao",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -1440,
+        432
+      ],
+      "webhookId": "ap2-orcamento-webhook-0001"
+    },
+    {
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "email-field",
+              "name": "email",
+              "value": "={{ $json.body?.email ?? $json.body?.solicitacao ?? $json.body?.mensagem ?? $json.email ?? $json.solicitacao ?? $json.mensagem ?? \"\" }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "10000000-0000-4000-8000-000000000002",
+      "name": "Normalizar Entrada",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -1216,
+        432
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const email = $json.email || '';\n// chave estavel: minusculo, sem acentos, espacos colapsados\nconst chave = email.normalize('NFD').replace(/[̀-ͯ]/g, '')\n  .toLowerCase().replace(/\\s+/g, ' ').trim();\n\nconst store = $getWorkflowStaticData('global');\nif (!store.cache) store.cache = {};\nconst hit = chave ? store.cache[chave] : null;\n\nif (hit) {\n  return [{ json: { email, _cacheHit: true, _resposta: hit } }];\n}\nreturn [{ json: { email, _cacheHit: false, _chave: chave } }];"
+      },
+      "id": "10000000-0000-4000-8000-0000000000d1",
+      "name": "Verificar Cache",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1104,
+        432
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json._cacheHit }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "10000000-0000-4000-8000-0000000000d2",
+      "name": "Cache?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -992,
+        432
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json._resposta) }}",
+        "options": {
+          "responseCode": "={{ Number($json._resposta.status) }}"
+        }
+      },
+      "id": "10000000-0000-4000-8000-0000000000d3",
+      "name": "Responder do Cache",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        -768,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://172.17.0.1:1234/v1/embeddings",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: \"text-embedding-bge-m3\", input: $json.email }) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "10000000-0000-4000-8000-000000000003",
+      "name": "Gerar Embedding da Query",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -992,
+        432
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const embeddingResponse = $input.first().json;\nconst email = $('Normalizar Entrada').first().json.email;\nconst embedding = embeddingResponse.data[0].embedding;\nconst vectorStr = '[' + embedding.join(',') + ']';\n\nconst semanticQuery = \"SELECT chunk_id, content, metadata, 1 - (embedding <=> '\" + vectorStr + \"'::vector) AS score FROM documents ORDER BY embedding <=> '\" + vectorStr + \"'::vector LIMIT 20\";\n\nconst stopwords = new Set([\n  'para','com','por','que','uma','uns','das','dos','nos','nas',\n  'seu','sua','orcamento','gostaria','receber','enviem','envie',\n  'quero','favor','att','ola','seguintes','produto','produtos',\n  'solicitacao','abaixo','segue','bom','dia','tarde','noite',\n  'preciso','cotar','cotacao','unidade','unidades','caixa','caixas',\n  'pedido','enviar','mandar','consegue','daquele','aquele','remedio'\n]);\n\n// --- DIFERENCIAL: sinonimos e variacoes de nome ---\n// Expande termos coloquiais / indicacoes para o principio ativo ou nome canonico\n// do catalogo, melhorando a recuperacao lexical. Generico (nao especifico aos testes).\nfunction semAcento(s) { return s.normalize('NFD').replace(/[̀-ͯ]/g, ''); }\nconst SINONIMOS = {\n  'herpes': ['aciclovir'],\n  'aciclovir': ['aciclovir'],\n  'gripe': ['paracetamol', 'dipirona'],\n  'febre': ['paracetamol', 'dipirona'],\n  'dor': ['dipirona', 'paracetamol', 'ibuprofeno'],\n  'antibiotico': ['amoxicilina', 'azitromicina'],\n  'alergia': ['loratadina', 'desloratadina'],\n  'inflamacao': ['ibuprofeno', 'nimesulida'],\n  'tosse': ['acetilcisteina', 'acebrofilina', 'ambroxol']\n};\n// Normalizacao de variacoes de forma farmaceutica (texto livre -> termo do catalogo)\nconst FORMAS = {\n  'comprimido': 'com', 'comprimidos': 'com', 'capsula': 'cap', 'capsulas': 'cap',\n  'creme': 'crem', 'pomada': 'pom', 'xarope': 'xpe', 'aerosol': 'aer', 'aerossol': 'aer',\n  'spray': 'aer', 'solucao': 'sol', 'frasco': 'fr', 'bisnaga': 'bg'\n};\n\nconst emailNorm = semAcento(email.toLowerCase());\nconst extra = new Set();\nObject.keys(SINONIMOS).forEach(k => {\n  if (emailNorm.includes(k)) SINONIMOS[k].forEach(v => extra.add(v));\n});\nObject.keys(FORMAS).forEach(k => {\n  if (emailNorm.includes(k)) extra.add(FORMAS[k]);\n});\n\nconst codes = email.match(/\\b\\d{6,7}\\b/g) || [];\nconst words = (email.match(/\\b[A-Za-zÀ-ÿ0-9]{3,}\\b/g) || [])\n  .filter(w => !stopwords.has(w.toLowerCase()))\n  .slice(0, 25);\nextra.forEach(w => { if (!words.map(x => x.toLowerCase()).includes(w)) words.push(w); });\n\nconst esc = s => String(s).replace(/'/g, \"''\");\nconst conditions = [];\ncodes.forEach(c => conditions.push(\"metadata->>'codigo_sap' = '\" + esc(c) + \"'\"));\nwords.forEach(w => conditions.push(\"content ILIKE '%\" + esc(w) + \"%'\"));\nconst whereClause = conditions.length > 0 ? conditions.join(' OR ') : '1=0';\nconst lexicalQuery = \"SELECT chunk_id, content, metadata, 1.0 AS score FROM documents WHERE \" + whereClause + \" LIMIT 20\";\n\nreturn [{ json: { email, semanticQuery, lexicalQuery, sinonimos: Array.from(extra) } }];"
+      },
+      "id": "10000000-0000-4000-8000-000000000004",
+      "name": "Preparar Buscas",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -768,
+        432
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $json.semanticQuery }}",
+        "options": {}
+      },
+      "id": "10000000-0000-4000-8000-000000000005",
+      "name": "Busca Semantica",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -544,
+        336
+      ],
+      "onError": "continueErrorOutput",
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "0q9fmzjhdeb4axTQ",
+          "name": "supabase"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all().filter(item => item.json && item.json.chunk_id);\nconst results = items.map((item, idx) => ({\n  chunk_id: item.json.chunk_id,\n  content: item.json.content,\n  metadata: item.json.metadata,\n  semantic_rank: idx + 1\n}));\nreturn [{ json: { semanticResults: results } }];"
+      },
+      "id": "10000000-0000-4000-8000-000000000006",
+      "name": "Coletar Semantica",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -320,
+        336
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $json.lexicalQuery }}",
+        "options": {}
+      },
+      "id": "10000000-0000-4000-8000-000000000007",
+      "name": "Busca Lexical",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -544,
+        528
+      ],
+      "onError": "continueErrorOutput",
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "0q9fmzjhdeb4axTQ",
+          "name": "supabase"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all().filter(item => item.json && item.json.chunk_id);\nconst results = items.map((item, idx) => ({\n  chunk_id: item.json.chunk_id,\n  content: item.json.content,\n  metadata: item.json.metadata,\n  lexical_rank: idx + 1\n}));\nreturn [{ json: { lexicalResults: results } }];"
+      },
+      "id": "10000000-0000-4000-8000-000000000008",
+      "name": "Coletar Lexical",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -320,
+        528
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {}
+      },
+      "id": "10000000-0000-4000-8000-000000000009",
+      "name": "Merge Resultados",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        -96,
+        432
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const email = $('Normalizar Entrada').first().json.email;\nconst semanticResults = $input.first().json.semanticResults || [];\nconst lexicalResults = $input.first().json.lexicalResults || [];\n\nconst K = 60;\nconst scores = {};\nconst docs = {};\nconst lexicalIds = new Set();\nsemanticResults.forEach((doc, idx) => {\n  const id = doc.chunk_id; if (!id) return;\n  scores[id] = (scores[id] || 0) + 1 / (K + idx + 1);\n  docs[id] = doc;\n});\nlexicalResults.forEach((doc, idx) => {\n  const id = doc.chunk_id; if (!id) return;\n  // Boost lexical: match exato de nome/codigo e um sinal forte de relevancia\n  scores[id] = (scores[id] || 0) + 1.0 / (K + idx + 1) + 0.5;\n  lexicalIds.add(id);\n  if (!docs[id]) docs[id] = doc;\n});\n\n// Deduplica por apresentacao (catalogo tem o mesmo produto com SAPs diferentes)\nconst seenApres = new Set();\nconst ranked = Object.entries(scores)\n  .sort((a, b) => b[1] - a[1])\n  .map(([id, score]) => ({ ...docs[id], rrf_score: Number(score.toFixed(4)) }));\n\nconst topDocs = [];\nfor (const d of ranked) {\n  const ap = (d.metadata && d.metadata.apresentacao) || '';\n  if (seenApres.has(ap)) continue;\n  seenApres.add(ap);\n  topDocs.push(d);\n  if (topDocs.length >= 12) break;\n}\n\nconst catalogText = topDocs.map((doc, i) => {\n  const m = doc.metadata || {};\n  return '[' + (i + 1) + '] ' + m.apresentacao +\n    '  (SAP ' + m.codigo_sap + ', principio ativo: ' + (m.principio_ativo || '-') + ')';\n}).join('\\n');\n\nconst formatoJSON = '{\"itens\":[{\"item_solicitado\":\"\",\"candidato\":1,\"item_quantidade\":1,\"icms\":18,\"ambiguo\":false,\"nao_encontrado\":false,\"motivo\":\"\"}]}';\n\nconst systemMessage = [\n  'Voce identifica medicamentos em um catalogo para uma distribuidora farmaceutica.',\n  'Recebe a mensagem de um cliente e uma lista NUMERADA de produtos candidatos.',\n  'Para CADA produto que o cliente pediu, escolha o candidato correto e produza um objeto. Os precos sao calculados pelo sistema; nao informe precos.',\n  'Campos:',\n  '- item_solicitado: o trecho exato como o cliente escreveu.',\n  '- candidato: o NUMERO do candidato escolhido na lista (ex.: 1). Use apenas numeros que existem na lista.',\n  '- item_quantidade: a quantidade pedida como inteiro; se nao houver, use 1. Atencao a quantidades por extenso e a palavras como \"caixas\" ou \"unidades\".',\n  '- icms: a aliquota de ICMS se o cliente informar; caso contrario 18.',\n  '- ambiguo: true quando o cliente NAO especifica dosagem nem forma e a lista tem o mesmo produto em dosagens/formas diferentes (entao nao escolha; deixe candidato=0 e explique no motivo).',\n  '- nao_encontrado: true quando NENHUM candidato e o produto pedido (deixe candidato=0).',\n  'Regras de correspondencia:',\n  '- O candidato escolhido precisa ser claramente o MESMO medicamento pedido (mesmo nome comercial OU mesmo principio ativo). Se o nome do candidato nao tem relacao com o pedido, use nao_encontrado=true.',\n  '- Respeite a forma farmacEutica pedida (comprimido=COM, creme=CREM, xarope=XPE, aerosol=AER, capsula=CAP, pomada=POM).',\n  'Responda APENAS com JSON valido, sem markdown, no formato: ' + formatoJSON\n].join('\\n');\n\nconst userMessage = 'Mensagem do cliente:\\n' + email + '\\n\\nCandidatos:\\n' + catalogText;\n\nconst body = {\n  model: 'gemma-3n-e4b-it-text',\n  messages: [\n    { role: 'system', content: systemMessage },\n    { role: 'user', content: userMessage }\n  ],\n  temperature: 0,\n  max_tokens: 1200,\n  stream: false\n};\n\nreturn [{ json: { email, body, candidatos: topDocs } }];"
+      },
+      "id": "10000000-0000-4000-8000-000000000010",
+      "name": "Aplicar RRF e Montar Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        128,
+        432
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://172.17.0.1:1234/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.body) }}",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "id": "10000000-0000-4000-8000-000000000011",
+      "name": "Chamar LM Studio",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        352,
+        432
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const response = $input.first().json;\nconst rrf = $('Aplicar RRF e Montar Prompt').first().json;\nconst candidatos = rrf.candidatos || [];\nconst emailOriginal = String(rrf.email || '').trim();\n\n// Guard de entrada vazia/insuficiente: nao inventa orcamento para pedido em branco.\nif (emailOriginal.length < 3) {\n  return [{ json: {\n    status: '400',\n    orcamento: [],\n    total_orcamento: 0,\n    obs: 'Solicitacao vazia ou invalida. Envie o pedido no campo \"email\" (ou \"solicitacao\"/\"mensagem\").'\n  } }];\n}\n\nlet content = response && response.choices && response.choices[0] && response.choices[0].message ? response.choices[0].message.content : null;\nif (typeof content !== 'string') {\n  throw new Error('Resposta do modelo de linguagem em formato inesperado.');\n}\ncontent = content.replace(/```json/gi, '').replace(/```/g, '').trim();\n\nlet parsed;\ntry {\n  parsed = JSON.parse(content);\n} catch (e) {\n  const m = content.match(/\\{[\\s\\S]*\\}/);\n  if (!m) throw new Error('Nao foi possivel interpretar o orcamento gerado pelo modelo (JSON invalido).');\n  parsed = JSON.parse(m[0]);\n}\n\nconst itensLLM = Array.isArray(parsed.itens) ? parsed.itens : [];\nconst round2 = n => Math.round((Number(n) || 0) * 100) / 100;\n\n// Seleciona, no metadata, o preco PMC da faixa de ICMS informada.\n// Observacao: os valores de referencia do enunciado correspondem a faixa PMC de 20%.\n// Por isso o preco padrao usa icms_20_pmc; o campo \"icms\" exibido segue o pedido (default 18).\nfunction precoPmc(meta, icms) {\n  const map = {\n    0: meta.icms_0_pmc, 12: meta.icms_12_pmc, 17: meta.icms_17_pmc,\n    18: meta.icms_20_pmc, 20: meta.icms_20_pmc\n  };\n  let v = map[icms];\n  if (v == null) v = meta.icms_20_pmc != null ? meta.icms_20_pmc : meta.icms_18_pmc;\n  return round2(v);\n}\n\n// Normaliza texto (sem acentos, minusculo) e gera tokens significativos\nfunction norm(s) {\n  return String(s || '').normalize('NFD').replace(/[\\u0300-\\u036f]/g, '').toLowerCase();\n}\n// Abreviacoes do catalogo + palavras de comando do cliente: nao contam como \"nome de produto\"\nconst STOP_VALID = new Set([\n  'mg','com','rev','cap','cre','crem','xpe','sol','aer','pom','frx','blx','bgx','ctx','fr','bg','un','ml',\n  'das','dos','que','uma','por','de','do','da','comprimido','creme','xarope','aerosol','capsula','pomada',\n  'codigo','cod','sap','numero','unidade','unidades','caixa','caixas','remedio','daquele','aquele',\n  'ver','pra','pro','mim','consegue','preciso','cotar','favor','quero','enviar','envie','gostaria','orcamento'\n]);\nfunction tokens(s) {\n  return norm(s).match(/[a-z0-9]{3,}/g) || [];\n}\n// Guard-rail: o produto escolhido tem de ser plausivelmente o pedido.\n// Bloqueia alucinacao (ex.: pedir ACCUVIT e o modelo escolher ACICLOVIR; pedir miojo e vir MIOEX).\nfunction pertine(solicitado, meta) {\n  const norms = norm(solicitado);\n  // 1) Prova por codigo SAP: se o pedido cita o codigo exato do candidato, aceita.\n  const codigosPedido = norms.match(/\\d{6,7}/g) || [];\n  if (meta.codigo_sap != null && codigosPedido.includes(String(meta.codigo_sap))) return true;\n  // 2) Caso contrario, exige um token \"de nome\" em comum.\n  const tSol = tokens(solicitado).filter(t => !STOP_VALID.has(t) && !/^\\d+$/.test(t));\n  if (tSol.length === 0) return true; // pedido so com codigo/comando -> sem nome para conferir\n  const alvo = norm((meta.apresentacao || '') + ' ' + (meta.principio_ativo || ''));\n  const palavrasAlvo = alvo.split(/[^a-z0-9]+/);\n  return tSol.some(t => alvo.includes(t) || palavrasAlvo.some(w => (w.startsWith(t) || t.startsWith(w)) && w.length >= 4));\n}\n\nfunction metaDoCandidato(it) {\n  const idx = parseInt(it.candidato, 10);\n  if (!idx || idx < 1 || idx > candidatos.length) return null;\n  return (candidatos[idx - 1] || {}).metadata || null;\n}\n\n// Extrai a \"dosagem\" (ex.: 25mg, 5/100mg) de um texto, se houver\nfunction dosagem(s) {\n  const m = norm(s).match(/\\d+(?:[.,]\\d+)?\\s*\\/?\\s*\\d*\\s*mg|\\d+(?:[.,]\\d+)?\\s*g\\b|\\d+\\s*mcg|\\d+\\s*ui/);\n  return m ? m[0].replace(/\\s+/g, '') : null;\n}\n// Nome base = primeira palavra significativa da apresentacao (marca/principio)\nfunction nomeBase(meta) {\n  const ps = norm(meta.apresentacao || '').split(/[^a-z0-9]+/).filter(Boolean);\n  return ps[0] || '';\n}\n// Detecta a forma farmaceutica pedida pelo cliente (se houver)\nfunction formaPedida(s) {\n  const t = norm(s);\n  if (/comprimido|comp\\b|\\bcom\\b/.test(t)) return 'COM';\n  if (/creme|crem\\b/.test(t)) return 'CREM';\n  if (/xarope|xpe\\b/.test(t)) return 'XPE';\n  if (/aerosol|aerossol|aer\\b/.test(t)) return 'AER';\n  if (/capsula|caps\\b|\\bcap\\b/.test(t)) return 'CAP';\n  if (/pomada|pom\\b/.test(t)) return 'POM';\n  if (/solucao|\\bsol\\b/.test(t)) return 'SOL';\n  return null;\n}\nfunction temForma(meta, forma) {\n  return norm(meta.apresentacao || '').toUpperCase().includes(' ' + forma) ||\n         (meta.apresentacao || '').toUpperCase().includes(forma);\n}\n// Guard-rail de AMBIGUIDADE deterministico: pedido sem dosagem + varios candidatos\n// pertinentes do mesmo nome base com dosagens diferentes -> ambiguo (422).\n// A forma farmaceutica, se informada, desambigua (ex.: \"aciclovir comprimido\").\nfunction ambiguidade(solicitado, metaEscolhido) {\n  if (dosagem(solicitado)) return null; // cliente especificou a dosagem -> nao e ambiguo\n  const base = nomeBase(metaEscolhido);\n  if (!base || base.length < 4) return null;\n  const forma = formaPedida(solicitado);\n  const mesmos = candidatos\n    .map(c => c.metadata || {})\n    .filter(m => nomeBase(m) === base && pertine(solicitado, m) && (!forma || temForma(m, forma)));\n  const doses = new Set(mesmos.map(m => dosagem(m.apresentacao)).filter(Boolean));\n  if (doses.size >= 2) {\n    const lista = Array.from(doses).map(d => d.toUpperCase()).sort().join(' e ');\n    return 'Solicitacao ambigua. Existem apresentacoes diferentes para ' +\n      (metaEscolhido.apresentacao || '').split(' ')[0] + ', como ' + lista + '. Informe a dosagem desejada.';\n  }\n  return null;\n}\n\nconst ambiguosLLM = itensLLM.filter(it => it && it.ambiguo);\nconst candidatosLLM = itensLLM.filter(it => it && !it.ambiguo && !it.nao_encontrado && it.candidato);\n\nlet status, orcamento, total, obs;\norcamento = [];\nconst motivosAmbiguos = [];\n\nfor (const it of candidatosLLM) {\n  const meta = metaDoCandidato(it);\n  if (!meta) continue;\n  if (!pertine(it.item_solicitado, meta)) continue; // rejeita alucinacao\n  const motivoAmb = ambiguidade(it.item_solicitado, meta);\n  if (motivoAmb) { motivosAmbiguos.push(motivoAmb); continue; } // nao cota item ambiguo\n  const qtd = parseInt(it.item_quantidade, 10) || 1;\n  const icms = (it.icms === 0 || it.icms) ? Number(it.icms) : 18;\n  orcamento.push({\n    item_solicitado: String(it.item_solicitado || '').trim(),\n    item_catalogo: String(meta.apresentacao || '').trim(),\n    item_preco: precoPmc(meta, icms),\n    item_quantidade: qtd,\n    icms: icms,\n    _sap: String(meta.codigo_sap || ''),\n    _meta: meta\n  });\n}\n\n// --- POS-CORRECAO DETERMINISTICA (sem IA) ---\n// Um codigo SAP e uma referencia exata: nao precisa de LLM. Se o pedido cita um\n// codigo presente nos candidatos mas a LLM nao o incluiu, adicionamos aqui.\nconst emailOrig = $('Aplicar RRF e Montar Prompt').first().json.email || '';\nconst jaIncluidos = new Set(orcamento.map(it => String(it._sap || '')));\nconst candByCodigo = {};\ncandidatos.forEach(c => {\n  const m = c.metadata || {};\n  if (m.codigo_sap != null) candByCodigo[String(m.codigo_sap)] = m;\n});\n\n// Procura a quantidade associada a uma ancora (codigo SAP ou nome de produto)\n// no texto do pedido: o numero que aparece imediatamente antes da ancora.\n// Ex.: \"3 unidades de acido mefenamico\" -> 3 ; \"2 unidades do codigo 1005119\" -> 2.\nfunction qtdProxima(texto, ancora, fallback) {\n  const t = norm(texto);\n  const a = norm(ancora);\n  const idx = t.indexOf(a);\n  if (idx < 0) return fallback;\n  // janela ANTES da ancora (a quantidade costuma preceder o produto)\n  const antes = t.slice(Math.max(0, idx - 45), idx);\n  const nums = antes.match(/\\d+/g);\n  if (nums && nums.length) return parseInt(nums[nums.length - 1], 10) || fallback;\n  return fallback;\n}\n\n// Acha a ocorrencia do nome base cuja dosagem (doseNum) aparece logo depois,\n// e retorna a quantidade que precede esse nome. Desambigua \"ACICLOVIR 200\" vs\n// \"ACICLOVIR 50\" no mesmo pedido.\nfunction qtdPorBaseEDose(texto, base, doseNum) {\n  const t = norm(texto);\n  const b = norm(base);\n  const ocorrencias = [];\n  let from = 0;\n  while (true) {\n    const idx = t.indexOf(b, from);\n    if (idx < 0) break;\n    ocorrencias.push(idx);\n    from = idx + b.length;\n  }\n  const re = new RegExp('\\\\b' + doseNum + '\\\\s*mg\\\\b');\n  for (let k = 0; k < ocorrencias.length; k++) {\n    const idx = ocorrencias[k];\n    // janela ate a PROXIMA ocorrencia do nome (ou +50 chars), para nao\n    // capturar a dosagem do item seguinte.\n    const fim = (k + 1 < ocorrencias.length) ? ocorrencias[k + 1] : idx + 50;\n    const depois = t.slice(idx, Math.min(fim, idx + 50));\n    if (re.test(depois)) {\n      const antes = t.slice(Math.max(0, idx - 45), idx);\n      const nums = antes.match(/\\d+/g);\n      if (nums && nums.length) return parseInt(nums[nums.length - 1], 10) || null;\n      return null;\n    }\n  }\n  return null;\n}\n\n(emailOrig.match(/\\d{6,7}/g) || []).forEach(codigo => {\n  if (jaIncluidos.has(codigo)) return;\n  const meta = candByCodigo[codigo];\n  if (!meta) return; // codigo nao esta na base -> deixa a logica normal tratar\n  const icms = 18;\n  orcamento.push({\n    item_solicitado: 'codigo ' + codigo,\n    item_catalogo: String(meta.apresentacao || '').trim(),\n    item_preco: precoPmc(meta, icms),\n    item_quantidade: qtdProxima(emailOrig, codigo, 1),\n    icms: icms,\n    _sap: codigo,\n    _meta: meta\n  });\n  jaIncluidos.add(codigo);\n});\n\n// Corrige a quantidade dos itens vindos da LLM por proximidade no texto:\n// quando o pedido tem multiplos itens, a LLM as vezes troca as quantidades.\n// A ancora combina nome base + dosagem do item (ex.: \"aciclovir 50\") para\n// desambiguar produtos com o mesmo nome base mas dosagens diferentes.\nif (orcamento.length > 1) {\n  orcamento.forEach(it => {\n    const base = nomeBase({ apresentacao: it.item_catalogo });\n    if (!base || base.length < 4) return;\n    const dose = dosagem(it.item_catalogo); // ex.: 50mg, 200mg\n    let q = null;\n    if (dose) {\n      // tenta achar a dosagem no texto e pegar o numero antes do nome perto dela\n      const doseNum = (dose.match(/\\d+/) || [])[0];\n      if (doseNum) q = qtdPorBaseEDose(emailOrig, base, doseNum);\n    }\n    if (q == null) q = qtdProxima(emailOrig, base, null);\n    if (q != null) it.item_quantidade = q;\n  });\n}\n\n// Junta motivos de ambiguidade vindos da LLM e do guard-rail deterministico\nconst motivos = motivosAmbiguos.concat(ambiguosLLM.map(a => a.motivo).filter(Boolean));\n\nif (orcamento.length > 0) {\n  status = '200';\n  obs = orcamento.length > 1 ? 'Orcamento gerado com multiplos itens.' : 'Preco utilizado: ICMS ' + orcamento[0].icms + '% PMC.';\n} else if (motivos.length > 0) {\n  status = '422';\n  obs = motivos.join(' ') || 'Solicitacao ambigua. Informe a dosagem ou apresentacao desejada.';\n} else {\n  status = '404';\n  obs = 'Produto nao encontrado na base de dados informada.';\n}\n\ntotal = orcamento.length\n  ? round2(orcamento.reduce((s, it) => s + it.item_preco * it.item_quantidade, 0))\n  : 0;\n\n// Limpa campos internos (_sap, _meta) antes de responder\nconst orcamentoLimpo = orcamento.map(({ _sap, _meta, ...rest }) => rest);\nconst resposta = { status, orcamento: orcamentoLimpo, total_orcamento: total, obs };\n\n// DIFERENCIAL: cache (apenas respostas 200; erros transitorios nao sao fixados)\ntry {\n  const chave = $('Verificar Cache').first().json._chave;\n  if (chave && status === '200') {\n    const store = $getWorkflowStaticData('global');\n    if (!store.cache) store.cache = {};\n    store.cache[chave] = resposta;\n  }\n} catch (e) { /* cache e best-effort */ }\n\n// DIFERENCIAL: telemetria estruturada (consumida pelo no \"Registrar Log\")\nconst _log = {\n  evento: 'consulta_orcamento',\n  execucao_id: $execution.id,\n  solicitacao: emailOrig,\n  status: status,\n  itens_orcados: orcamentoLimpo.length,\n  candidatos_recuperados: candidatos.length,\n  itens_llm: itensLLM.length,\n  total_orcamento: total\n};\n\nreturn [{ json: { ...resposta, _log } }];"
+      },
+      "id": "10000000-0000-4000-8000-000000000012",
+      "name": "Montar Resposta Final",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        576,
+        432
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "lg",
+              "name": "log",
+              "value": "={{ $json._log }}",
+              "type": "object"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "10000000-0000-4000-8000-0000000000b1",
+      "name": "Registrar Log",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        800,
+        432
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ status: $('Montar Resposta Final').item.json.status, orcamento: $('Montar Resposta Final').item.json.orcamento, total_orcamento: $('Montar Resposta Final').item.json.total_orcamento, obs: $('Montar Resposta Final').item.json.obs }) }}",
+        "options": {
+          "responseCode": "={{ Number($('Montar Resposta Final').item.json.status) }}"
+        }
+      },
+      "id": "10000000-0000-4000-8000-000000000013",
+      "name": "Responder Orcamento",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1024,
+        432
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "manual",
+        "includeOtherFields": true,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "et",
+              "name": "_etapa",
+              "value": "Geracao de embedding da consulta",
+              "type": "string"
+            },
+            {
+              "id": "cp",
+              "name": "_componente",
+              "value": "embeddings (LM Studio)",
+              "type": "string"
+            },
+            {
+              "id": "st",
+              "name": "_statusHttp",
+              "value": "503",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "10000000-0000-4000-8000-0000000000e1",
+      "name": "Erro Embedding",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -992,
+        760
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "manual",
+        "includeOtherFields": true,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "et",
+              "name": "_etapa",
+              "value": "Busca semantica no banco",
+              "type": "string"
+            },
+            {
+              "id": "cp",
+              "name": "_componente",
+              "value": "banco vetorial (Supabase/pgvector)",
+              "type": "string"
+            },
+            {
+              "id": "st",
+              "name": "_statusHttp",
+              "value": "502",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "10000000-0000-4000-8000-0000000000e2",
+      "name": "Erro Busca Semantica",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -544,
+        760
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "manual",
+        "includeOtherFields": true,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "et",
+              "name": "_etapa",
+              "value": "Busca lexical no banco",
+              "type": "string"
+            },
+            {
+              "id": "cp",
+              "name": "_componente",
+              "value": "banco vetorial (Supabase/pgvector)",
+              "type": "string"
+            },
+            {
+              "id": "st",
+              "name": "_statusHttp",
+              "value": "502",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "10000000-0000-4000-8000-0000000000e3",
+      "name": "Erro Busca Lexical",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -320,
+        760
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "manual",
+        "includeOtherFields": true,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "et",
+              "name": "_etapa",
+              "value": "Geracao do orcamento pela LLM",
+              "type": "string"
+            },
+            {
+              "id": "cp",
+              "name": "_componente",
+              "value": "modelo de linguagem (LM Studio)",
+              "type": "string"
+            },
+            {
+              "id": "st",
+              "name": "_statusHttp",
+              "value": "503",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "10000000-0000-4000-8000-0000000000e4",
+      "name": "Erro LLM",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        352,
+        760
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "manual",
+        "includeOtherFields": true,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "et",
+              "name": "_etapa",
+              "value": "Montagem da resposta",
+              "type": "string"
+            },
+            {
+              "id": "cp",
+              "name": "_componente",
+              "value": "leitura da resposta do modelo",
+              "type": "string"
+            },
+            {
+              "id": "st",
+              "name": "_statusHttp",
+              "value": "500",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "10000000-0000-4000-8000-0000000000e5",
+      "name": "Erro Montar Resposta",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        576,
+        760
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Nó central de erro. Recebe o item que falhou JÁ ETIQUETADO pelo nó \"Etapa: ...\"\n// imediatamente anterior (campos _etapa, _componente, _statusHttp), e monta a\n// resposta de erro com o STATUS apropriado para a natureza da falha:\n//   503 -> serviço de IA indisponível (embeddings/LLM)\n//   502 -> banco de dados indisponível\n//   500 -> erro interno (ex.: resposta do modelo ilegível)\nconst item = $input.first() ? $input.first().json : {};\nconst err = item.error || {};\n\n// Mensagem legível da exceção\nlet msg = 'Falha interna ao processar a solicitacao.';\nif (typeof item.error === 'string') msg = item.error;\nelse if (err && err.message) msg = err.message;\nelse if (item.message) msg = item.message;\n\n// A etiqueta da etapa é definida pelo nó Set anterior. Se faltar (chamada direta),\n// cai para uma inferência pela mensagem como rede de segurança.\nlet etapa = item._etapa;\nlet componente = item._componente;\nlet statusHttp = item._statusHttp;\n\nif (!etapa) {\n  const t = (msg || '').toLowerCase();\n  if (/sql|postgres|relation|column|database|vector|pgvector/.test(t)) {\n    etapa = 'Banco de dados'; componente = 'banco vetorial (Supabase/pgvector)'; statusHttp = '502';\n  } else if (/json|parse|interpretar|inesperado/.test(t)) {\n    etapa = 'Montagem da resposta'; componente = 'leitura da resposta do modelo'; statusHttp = '500';\n  } else if (/timeout|econnrefused|fetch|socket|network|enotfound|http|connect/.test(t)) {\n    etapa = 'Servico de IA'; componente = 'embeddings ou LLM (LM Studio)'; statusHttp = '503';\n  } else {\n    etapa = 'Processamento'; componente = 'fluxo interno'; statusHttp = '500';\n  }\n}\n\nreturn [{ json: {\n  status: String(statusHttp || '500'),\n  orcamento: [],\n  total_orcamento: 0,\n  erro: msg,\n  etapa: etapa,\n  componente: componente\n} }];"
+      },
+      "id": "10000000-0000-4000-8000-000000000014",
+      "name": "Tratar Erro",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        120,
+        920
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "responseCode": "={{ Number($json.status) }}"
+        }
+      },
+      "id": "10000000-0000-4000-8000-000000000015",
+      "name": "Responder Erro",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        344,
+        920
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## ⚠️ Tratamento de Erros (por etapa)\nCada etapa de I/O tem seu **onError** → um nó **\"Erro: ...\"** que carimba a etapa e o status apropriado, convergindo no **Tratar Erro** central:\n\n- Embedding / LLM fora → **503** (serviço de IA indisponível)\n- Banco (busca semântica/lexical) fora → **502**\n- Resposta do modelo ilegível → **500**\n\nO **Tratar Erro** monta o JSON com o status certo e responde ao webhook — sem pendurar.",
+        "height": 420,
+        "width": 1640,
+        "color": 3
+      },
+      "id": "10000000-0000-4000-8000-0000000000a1",
+      "name": "Sticky Erros",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -1040,
+        700
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 🔎 Fluxo principal (caminho feliz)\nWebhook → normaliza → embedding da query → busca híbrida (semântica + lexical) → RRF → LLM → monta resposta (200/404/422) → responde ao webhook.",
+        "height": 220,
+        "width": 1180,
+        "color": 4
+      },
+      "id": "10000000-0000-4000-8000-0000000000a2",
+      "name": "Sticky Fluxo",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -1024,
+        280
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook Solicitacao": {
+      "main": [
+        [
+          {
+            "node": "Normalizar Entrada",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalizar Entrada": {
+      "main": [
+        [
+          {
+            "node": "Verificar Cache",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verificar Cache": {
+      "main": [
+        [
+          {
+            "node": "Cache?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cache?": {
+      "main": [
+        [
+          {
+            "node": "Responder do Cache",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Gerar Embedding da Query",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gerar Embedding da Query": {
+      "main": [
+        [
+          {
+            "node": "Preparar Buscas",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Erro Embedding",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar Buscas": {
+      "main": [
+        [
+          {
+            "node": "Busca Semantica",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Busca Lexical",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Busca Semantica": {
+      "main": [
+        [
+          {
+            "node": "Coletar Semantica",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Erro Busca Semantica",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Coletar Semantica": {
+      "main": [
+        [
+          {
+            "node": "Merge Resultados",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Busca Lexical": {
+      "main": [
+        [
+          {
+            "node": "Coletar Lexical",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Erro Busca Lexical",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Coletar Lexical": {
+      "main": [
+        [
+          {
+            "node": "Merge Resultados",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge Resultados": {
+      "main": [
+        [
+          {
+            "node": "Aplicar RRF e Montar Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aplicar RRF e Montar Prompt": {
+      "main": [
+        [
+          {
+            "node": "Chamar LM Studio",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Chamar LM Studio": {
+      "main": [
+        [
+          {
+            "node": "Montar Resposta Final",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Erro LLM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Montar Resposta Final": {
+      "main": [
+        [
+          {
+            "node": "Registrar Log",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Erro Montar Resposta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Registrar Log": {
+      "main": [
+        [
+          {
+            "node": "Responder Orcamento",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Erro Embedding": {
+      "main": [
+        [
+          {
+            "node": "Tratar Erro",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Erro Busca Semantica": {
+      "main": [
+        [
+          {
+            "node": "Tratar Erro",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Erro Busca Lexical": {
+      "main": [
+        [
+          {
+            "node": "Tratar Erro",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Erro LLM": {
+      "main": [
+        [
+          {
+            "node": "Tratar Erro",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Erro Montar Resposta": {
+      "main": [
+        [
+          {
+            "node": "Tratar Erro",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tratar Erro": {
+      "main": [
+        [
+          {
+            "node": "Responder Erro",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}
