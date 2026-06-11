@@ -1,4 +1,4 @@
-## Bryan Santos, Gustavo Salvador e Julia Curto
+## Bryan Santos, Gustavo Salvador, Julia Curto e Luã Macedo
 # Orçamento Farmacêutico Híbrido — AP2
 
 Sistema profissional de **orçamentação com RAG**: uma API recebe uma solicitação de orçamento
